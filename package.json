@@ -7,7 +7,8 @@
     "start": "node server.js",
     "electron": "npx -y electron@latest .",
     "desktop": "npx -y electron@latest .",
-    "build:exe": "npx electron-builder --win nsis"
+    "dist": "npx -y electron-builder@latest --win nsis",
+    "build:exe": "npx -y electron-builder@latest --win nsis"
   },
   "dependencies": {
     "express": "^4.19.2"
@@ -18,12 +19,27 @@
   },
   "build": {
     "appId": "com.mcpc.compiler",
-    "productName": "MCPC CodeForge Compiler Desktop",
+    "productName": "CodeForge Desktop Compiler",
     "directories": {
       "output": "dist"
     },
+    "files": [
+      "electron-main.js",
+      "preload.js",
+      "server.js",
+      "package.json",
+      "public/**/*",
+      "codeforge/frontend/src/**/*",
+      "codeforge/backend/src/**/*",
+      "codeforge/backend/package.json"
+    ],
     "win": {
-      "target": "nsis"
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ]
     }
   }
 }

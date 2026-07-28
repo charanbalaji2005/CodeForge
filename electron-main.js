@@ -5,20 +5,18 @@ const os = require('os');
 const { spawn } = require('child_process');
 
 let mainWindow;
-let serverProcess;
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3002;
 
-// Default local project directory: Documents/mcpc-projects
-const PROJECTS_DIR = path.join(os.homedir(), 'Documents', 'mcpc-projects');
+// Default local project directory: Documents/CodeForge-projects
+const PROJECTS_DIR = path.join(os.homedir(), 'Documents', 'CodeForge-projects');
 
 function ensureProjectsDir() {
     if (!fs.existsSync(PROJECTS_DIR)) {
         try {
             fs.mkdirSync(PROJECTS_DIR, { recursive: true });
-            // Create a default welcome file
             const sampleFile = path.join(PROJECTS_DIR, 'hello.mcpp');
             if (!fs.existsSync(sampleFile)) {
-                fs.writeFileSync(sampleFile, `// Welcome to MCPC MiniCPP Compiler Desktop!\n// All code files are saved locally in: ${PROJECTS_DIR}\n\n#include <iostream>\n\nint main() {\n    std::cout << "Hello from MCPC Desktop!" << std::endl;\n    return 0;\n}\n`, 'utf8');
+                fs.writeFileSync(sampleFile, `// Welcome to CodeForge Desktop Compiler!\n// All code files are saved locally in: ${PROJECTS_DIR}\n\n#include <iostream>\n\nint main() {\n    std::cout << "Hello from CodeForge Desktop!" << std::endl;\n    return 0;\n}\n`, 'utf8');
             }
         } catch (err) {
             console.error('Failed to create projects directory:', err);
@@ -34,7 +32,7 @@ function createWindow() {
         height: 860,
         minWidth: 900,
         minHeight: 600,
-        title: 'MCPC — CodeForge Compiler Desktop',
+        title: 'CodeForge — High Performance Compiler & Desktop IDE',
         backgroundColor: '#0d1117',
         webPreferences: {
             preload: path.join(__dirname, 'preload.js'),
@@ -44,16 +42,20 @@ function createWindow() {
         }
     });
 
-    const appUrl = `http://localhost:${PORT}`;
+    // Load Next.js CodeForge with desktop=true flag to launch directly into IDE workspace
+    const appUrl = `http://localhost:${PORT}?desktop=true`;
 
-    // Load server URL after server is ready
-    mainWindow.loadURL(appUrl).catch(() => {
-        // Retry if server is still spinning up
-        setTimeout(() => {
-            mainWindow.loadURL(appUrl);
-        }, 1000);
-    });
+    const loadApp = (url) => {
+        mainWindow.loadURL(url).catch(() => {
+            setTimeout(() => {
+                mainWindow.loadURL(url).catch(() => {
+                    mainWindow.loadURL('http://localhost:3000');
+                });
+            }, 1000);
+        });
+    };
 
+    loadApp(appUrl);
     buildAppMenu();
 
     mainWindow.on('closed', () => {
@@ -139,13 +141,13 @@ function buildAppMenu() {
                     }
                 },
                 {
-                    label: 'About MCPC Compiler Desktop',
+                    label: 'About CodeForge Desktop',
                     click: () => {
                         dialog.showMessageBox(mainWindow, {
                             type: 'info',
-                            title: 'About MCPC Compiler',
-                            message: 'MCPC — CodeForge Compiler Desktop',
-                            detail: `Version 1.0.0\nLocal Code Storage: ${PROJECTS_DIR}\nSupports MiniCPP (mcpc), C++, C, Python, JavaScript, Java, Go, Rust.`
+                            title: 'About CodeForge Compiler',
+                            message: 'CodeForge — High Performance Desktop Compiler',
+                            detail: `Version 1.0.0\nLocal Storage: ${PROJECTS_DIR}\nSupports MiniCPP (mcpc), C++, C, Python, JavaScript, Java, Go, Rust.`
                         });
                     }
                 }
@@ -155,16 +157,6 @@ function buildAppMenu() {
 
     const menu = Menu.buildFromTemplate(template);
     Menu.setApplicationMenu(menu);
-}
-
-// Start backend server
-function startBackendServer() {
-    // Require server directly in main process if possible or fork
-    try {
-        require('./server.js');
-    } catch (err) {
-        console.error('Failed to start internal server:', err);
-    }
 }
 
 // IPC Handlers for Local File Operations
@@ -311,7 +303,6 @@ ipcMain.handle('local:getProjectsDir', async () => {
 });
 
 app.whenReady().then(() => {
-    startBackendServer();
     createWindow();
 
     app.on('activate', () => {

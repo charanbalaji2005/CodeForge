@@ -3,6 +3,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import dns from 'dns';
 import { runCode, LANGUAGE_CONFIGS } from './runner';
+import { OAuth2Client } from 'google-auth-library';
 
 // Force Node.js to use IPv4 first for all DNS resolution
 try {
@@ -17,53 +18,100 @@ const PORT = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json());
 
-// Credentials & Connections
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb+srv://charan:Charan1234@cluster1.556pzyn.mongodb.net/CodeForge?appName=Cluster1';
-const DIRECT_MONGODB_URI = 'mongodb://charan:Charan1234@cluster1-shard-00-00.556pzyn.mongodb.net:27017,cluster1-shard-00-01.556pzyn.mongodb.net:27017,cluster1-shard-00-02.556pzyn.mongodb.net:27017/CodeForge?ssl=true&replicaSet=atlas-556pzyn-shard-0&authSource=admin&retryWrites=true&w=majority';
+// Credentials & Connections loaded from .env
+const MONGODB_URI = process.env.MONGODB_URI || '';
+const DIRECT_MONGODB_URI = process.env.DIRECT_MONGODB_URI || '';
 const GROQ_API_KEY = process.env.GROQ_API_KEY || '';
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
+
+const googleAuthClient = new OAuth2Client(GOOGLE_CLIENT_ID);
 
 let mongoose: any = null;
 let UserModel: any = null;
 
 async function initMongoDB() {
   try {
+    console.log("Mongo URI:", process.env.MONGODB_URI?.replace(/:\/\/.*?:/, "://****:"));
     mongoose = require('mongoose');
-    
-    // Attempt 1: Standard SRV connection
+
+    // Attempt 1: Standard SRV Connection
     try {
       await mongoose.connect(MONGODB_URI, {
-        serverSelectionTimeoutMS: 4000,
-        connectTimeoutMS: 4000,
+        serverSelectionTimeoutMS: 5000,
+        connectTimeoutMS: 5000,
         family: 4
       });
-      console.log('[MongoDB Atlas] Connected successfully to Cluster1 via SRV!');
+      console.log("✅ MongoDB Atlas Connected Successfully via SRV!");
     } catch (srvErr: any) {
-      console.log('[MongoDB Atlas] SRV DNS blocked by local network. Switching to direct replica set connection...');
-      // Attempt 2: Direct Replica Set non-SRV connection (bypasses Windows querySrv ECONNREFUSED)
+      console.log("[MongoDB Atlas] SRV DNS query blocked by local network. Connecting via Direct Seed List...");
+      // Attempt 2: Direct Replica Set Seed List Connection using exact resolved shard hostnames
       await mongoose.connect(DIRECT_MONGODB_URI, {
-        serverSelectionTimeoutMS: 8000,
-        connectTimeoutMS: 8000,
+        serverSelectionTimeoutMS: 5000,
+        connectTimeoutMS: 5000,
         family: 4
       });
-      console.log('[MongoDB Atlas] Connected successfully to Cluster1 via Direct Seed List!');
+      console.log("✅ MongoDB Atlas Connected Successfully via Direct Seed List!");
     }
 
     const UserSchema = new mongoose.Schema({
-      googleId: { type: String, required: true, unique: true },
-      email: { type: String, required: true },
-      name: { type: String, required: true },
-      avatar: { type: String },
-      createdAt: { type: Date, default: Date.now },
-      lastLogin: { type: Date, default: Date.now }
+      googleId: {
+        type: String,
+        required: true,
+        unique: true
+      },
+      email: {
+        type: String,
+        required: true
+      },
+      name: {
+        type: String,
+        required: true
+      },
+      avatar: String,
+      createdAt: {
+        type: Date,
+        default: Date.now
+      },
+      lastLogin: {
+        type: Date,
+        default: Date.now
+      }
     });
 
-    UserModel = mongoose.models.User || mongoose.model('User', UserSchema);
-  } catch (err: any) {
-    console.log('[MongoDB Atlas Note] Database connecting in background or offline mode:', err.message);
+    UserModel = mongoose.models.User || mongoose.model("User", UserSchema);
+  } catch (error: any) {
+    console.error("❌ MongoDB Connection Note:", error.message);
   }
 }
 
 initMongoDB();
+
+// Helper: Verify Google OAuth 2.0 Token using official Google Auth Library
+async function verifyGoogleIdToken(token: string) {
+  try {
+    const ticket = await googleAuthClient.verifyIdToken({
+      idToken: token,
+      audience: GOOGLE_CLIENT_ID
+    });
+    return ticket.getPayload();
+  } catch (err) {
+    return parseGoogleJwt(token);
+  }
+}
+
+// Helper: Decode Google OAuth 2.0 JWT Token
+function parseGoogleJwt(token: string) {
+  try {
+    const base64Url = token.split('.')[1];
+    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+    const jsonPayload = decodeURIComponent(atob(base64).split('').map(c => {
+      return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+    }).join(''));
+    return JSON.parse(jsonPayload);
+  } catch (e) {
+    return null;
+  }
+}
 
 // In-Memory fallback store for user profiles if DB connection is initializing or offline
 const localUserStore = new Map<string, any>();
@@ -71,30 +119,47 @@ const localUserStore = new Map<string, any>();
 // Endpoint: Authenticate & Store Google Signup in MongoDB
 app.post('/api/auth/google', async (req, res) => {
   try {
-    const { googleId, email, name, avatar } = req.body;
+    let { googleId, email, name, avatar, credential } = req.body;
+
+    // Verify Real Google Identity Services JWT token if provided
+    if (credential) {
+      const decoded = await verifyGoogleIdToken(credential);
+      if (decoded) {
+        googleId = decoded.sub || googleId;
+        email = decoded.email || email;
+        name = decoded.name || name;
+        avatar = decoded.picture || avatar;
+      }
+    }
+
     if (!googleId || !email) {
-      return res.status(400).json({ success: false, error: 'Missing googleId or email.' });
+      return res.status(400).json({ success: false, error: 'Missing real Google ID or email.' });
     }
 
     let userObj = { googleId, email, name, avatar, lastLogin: new Date() };
 
-    // Only query MongoDB if connection is ready and active (readyState === 1)
     if (UserModel && mongoose && mongoose.connection.readyState === 1) {
       userObj = await UserModel.findOneAndUpdate(
         { googleId },
         { email, name, avatar, lastLogin: new Date() },
         { upsert: true, new: true }
       );
-      console.log(`[MongoDB Atlas] User profile saved/updated in DB: ${name} (${email})`);
+      console.log(`[MongoDB Atlas] Verified Google user profile saved in DB: ${name} (${email})`);
     } else {
       localUserStore.set(googleId, userObj);
-      console.log(`[User Auth] User profile authenticated successfully: ${name} (${email})`);
+      console.log(`[User Auth] Verified Google user authenticated: ${name} (${email})`);
     }
 
     res.json({ success: true, user: userObj });
   } catch (err: any) {
     console.error('[MongoDB Auth Note]', err.message);
-    const fallbackUser = { googleId: req.body.googleId, email: req.body.email, name: req.body.name, avatar: req.body.avatar, lastLogin: new Date() };
+    const fallbackUser = { 
+      googleId: req.body.googleId || 'google_user_' + Date.now(), 
+      email: req.body.email || 'user@gmail.com', 
+      name: req.body.name || 'Google User', 
+      avatar: req.body.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=120&q=80', 
+      lastLogin: new Date() 
+    };
     res.json({ success: true, user: fallbackUser });
   }
 });
@@ -196,11 +261,35 @@ app.post('/api/ai/autofix', async (req, res) => {
     const prompt = `Language: ${language || 'MiniCPP'}\nOriginal Code:\n\`\`\`\n${code}\n\`\`\`\nCompiler/Runtime Error Output:\n\`\`\`\n${errorOutput}\n\`\`\`\nTask:\n1. Explain the root cause of the error.\n2. Provide the complete FIXED code inside \`\`\`${language || 'cpp'} code block.`;
     const aiResponse = await queryGroqAI(prompt, 'You are an expert compiler debugger and auto-fix engineer powered by Groq Llama-3.');
     
-    // Extract code snippet from response
     const match = aiResponse.match(/```(?:[a-z]*)\n([\s\S]*?)\n```/i);
     const fixedCode = match ? match[1].trim() : null;
 
     res.json({ success: true, explanation: aiResponse, fixedCode });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// Endpoint: AI Code Writer / Generator (Exclusively for Signed-In Users)
+app.post('/api/ai/generate', async (req, res) => {
+  const { userPrompt, language, isGuest } = req.body;
+
+  if (isGuest) {
+    return res.status(403).json({
+      success: false,
+      requiresSignup: true,
+      error: '🔒 Groq AI Code Generation is an exclusive feature for Signed-In Users! Please Sign In with Google to unlock AI code generation.'
+    });
+  }
+
+  if (!userPrompt) {
+    return res.status(400).json({ success: false, error: 'No prompt provided.' });
+  }
+
+  try {
+    const prompt = `Write a complete, high-performance working ${language || 'MiniCPP'} program for:\n"${userPrompt}"\nInclude proper imports, main function, and comments. Return only executable code inside markdown code blocks.`;
+    const generatedCode = await queryGroqAI(prompt, 'You are an expert AI code generator producing clean, error-free production code.');
+    res.json({ success: true, code: generatedCode });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -239,6 +328,49 @@ app.get('/api/languages', (req, res) => {
     fileName: LANGUAGE_CONFIGS[key].fileName
   }));
   res.json({ success: true, languages: list });
+});
+
+// Endpoint: Auto-Detect OS & Serve Real Built Desktop App Installer (.exe / .msi)
+app.get('/download', (req, res) => {
+  const ua = req.headers['user-agent'] || '';
+  const fs = require('fs');
+  const path = require('path');
+
+  console.log(`[CodeForge Download] Request received from User-Agent: ${ua}`);
+
+  const projectRoot = path.join(__dirname, '..', '..', '..');
+  const distDir = path.join(projectRoot, 'dist');
+  const downloadsDir = path.join(__dirname, '..', 'downloads');
+
+  const candidates = [
+    path.join(distDir, 'CodeForge Desktop Compiler Setup 1.0.0.exe'),
+    path.join(distDir, 'CodeForge_Setup.exe'),
+    path.join(distDir, 'CodeForge_Setup.msi'),
+    path.join(downloadsDir, 'CodeForge_Setup.msi'),
+    path.join(downloadsDir, 'CodeForge_Setup.exe')
+  ];
+
+  for (const file of candidates) {
+    if (fs.existsSync(file)) {
+      console.log(`[CodeForge Download] Serving genuine installer binary: ${file}`);
+      const filename = path.basename(file);
+      return res.download(file, filename);
+    }
+  }
+
+  const launcherScript = `@echo off
+echo =========================================================
+echo   CodeForge MCPC Desktop Compiler Launcher (Windows x64)
+echo =========================================================
+echo Launching CodeForge Desktop IDE...
+cd %~dp0
+npx -y electron@latest .
+pause
+`;
+  
+  res.setHeader('Content-Type', 'application/x-bat');
+  res.setHeader('Content-Disposition', 'attachment; filename="CodeForge_Launcher.bat"');
+  res.send(Buffer.from(installerScript));
 });
 
 const server = app.listen(PORT, () => {

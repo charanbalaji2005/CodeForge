@@ -1,0 +1,5 @@
+{
+  "buildCommand": "npm run build --prefix codeforge/frontend",
+  "outputDirectory": "codeforge/frontend/.next",
+  "framework": "nextjs"
+}

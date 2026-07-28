@@ -33,6 +33,7 @@ export default function RootLayout({
     >
       <head>
         <link rel="icon" href="/favicon.png" type="image/png" />
+        <script src="https://accounts.google.com/gsi/client" async defer></script>
       </head>
       <body className="min-h-full flex flex-col">{children}</body>
     </html>
