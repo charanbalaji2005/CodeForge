@@ -1,6 +1,5 @@
 {
   "buildCommand": "cd codeforge/frontend && npm install && npm run build",
   "outputDirectory": "codeforge/frontend/.next",
-  "installCommand": "cd codeforge/frontend && npm install",
-  "framework": "nextjs"
+  "installCommand": "cd codeforge/frontend && npm install"
 }
