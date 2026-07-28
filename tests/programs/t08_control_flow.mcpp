@@ -1,0 +1,13 @@
+int main() {
+    int total = 0;
+    int i = 0;
+    while (i < 20) {
+        if (i % 2 == 0) {
+            total = total + i;
+        } else {
+            if (i == 15) { i = i + 1; continue; }
+        }
+        i = i + 1;
+    }
+    return total;
+}

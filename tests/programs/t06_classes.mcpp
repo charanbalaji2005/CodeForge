@@ -1,0 +1,13 @@
+class Counter {
+    int value;
+    Counter(int start) { value = start; }
+    int get() { return value; }
+    void inc() { value = value + 1; }
+};
+int main() {
+    Counter c = new Counter(10);
+    c.inc();
+    c.inc();
+    c.inc();
+    return c.get();
+}

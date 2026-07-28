@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CodeForge — Compiler Platform</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Top Header -->
+        <header class="main-header">
+            <div class="header-left">
+                <div class="logo-area">
+                    <img src="/logo.png" alt="CodeForge Logo" style="height: 28px; width: auto; vertical-align: middle; margin-right: 6px;" />
+                    <span class="logo-text">CodeForge Desktop</span>
+                </div>
+                <span class="version-badge">v1.0</span>
+                <div class="header-separator"></div>
+                <div class="active-file-tab">
+                    <i data-lucide="file-code" class="file-icon blue"></i>
+                    <span id="active-filename">main.mcpp</span>
+                </div>
+            </div>
+
+            <!-- Header Action Controls -->
+            <div class="header-right">
+                <select id="language-select" class="header-select">
+                    <option value="mcpp">MiniCPP (mcpc)</option>
+                    <option value="cpp">C++ (std::c++20)</option>
+                    <option value="c">C (gcc)</option>
+                    <option value="python">Python 3</option>
+                    <option value="javascript">JavaScript (Node.js)</option>
+                    <option value="java">Java 17</option>
+                    <option value="go">Go (Golang)</option>
+                    <option value="rust">Rust (rustc)</option>
+                </select>
+
+                <div class="header-separator"></div>
+
+                <button id="btn-new" class="icon-btn" title="New Local File (Ctrl+N)">
+                    <i data-lucide="file-plus"></i>
+                </button>
+                <button id="btn-open" class="icon-btn" title="Open Local File (Ctrl+O)">
+                    <i data-lucide="folder-open"></i>
+                </button>
+                <button id="btn-save" class="icon-btn" title="Save Local File (Ctrl+S)">
+                    <i data-lucide="save"></i>
+                </button>
+                <button id="btn-reset" class="icon-btn" title="Reset code template">
+                    <i data-lucide="refresh-cw"></i>
+                </button>
+                <button id="btn-download" class="icon-btn" title="Export file">
+                    <i data-lucide="download"></i>
+                </button>
+                <button id="btn-desktop-download" class="icon-btn" title="Download Desktop App (.exe)" style="color:var(--accent-blue);">
+                    <i data-lucide="laptop"></i>
+                </button>
+
+                <div class="header-separator"></div>
+
+                <button id="btn-run" class="run-btn">
+                    <i data-lucide="play" class="play-icon"></i>
+                    <span>Run Code</span>
+                </button>
+            </div>
+        </header>
+
+        <!-- Main Workspace split -->
+        <div class="workspace">
+            <!-- Left Icon Sidebar -->
+            <aside class="sidebar-icons">
+                <button class="sidebar-icon-btn active" data-panel="explorer" title="Explorer">
+                    <i data-lucide="folder"></i>
+                </button>
+                <button class="sidebar-icon-btn" data-panel="templates" title="Presets">
+                    <i data-lucide="code"></i>
+                </button>
+                <button class="sidebar-icon-btn" data-panel="metrics" title="Telemetry">
+                    <i data-lucide="activity"></i>
+                </button>
+                <button class="sidebar-icon-btn" data-panel="settings" title="Settings">
+                    <i data-lucide="settings"></i>
+                </button>
+            </aside>
+
+            <!-- Collapsible Sidebar Content Panel -->
+            <section id="sidebar-drawer" class="sidebar-drawer expanded">
+                <!-- Explorer Drawer -->
+                <div class="drawer-content active" id="drawer-explorer">
+                    <div class="drawer-header flex-between">
+                        <span>EXPLORER</span>
+                        <button id="btn-sidebar-new-file" class="mini-icon-btn" title="Create New File (+)">
+                            <i data-lucide="plus"></i>
+                        </button>
+                    </div>
+                    <div class="explorer-list" id="workspace-files-list">
+                        <!-- Populated dynamically with workspace files -->
+                    </div>
+
+                    <div class="drawer-header mt-4 flex-between">
+                        <span>Local Projects</span>
+                        <button id="btn-sidebar-new" class="mini-icon-btn" title="New Local Disk File">
+                            <i data-lucide="folder-plus"></i>
+                        </button>
+                    </div>
+                    <div class="explorer-list" id="local-projects-list">
+                        <!-- Populated dynamically with local disk files -->
+                    </div>
+                </div>
+
+                <!-- Presets/Templates Drawer -->
+                <div class="drawer-content" id="drawer-templates">
+                    <div class="drawer-header">Presets</div>
+                    <div class="presets-list">
+                        <button class="preset-btn active" data-lang="mcpp">
+                            <div class="preset-title">MiniCPP Template</div>
+                            <div class="preset-desc">mcpc handwritten compiler</div>
+                        </button>
+                        <button class="preset-btn" data-lang="cpp">
+                            <div class="preset-title">C++ Standard</div>
+                            <div class="preset-desc">g++ compiler suite</div>
+                        </button>
+                        <button class="preset-btn" data-lang="python">
+                            <div class="preset-title">Python script</div>
+                            <div class="preset-desc">python3 interpreter</div>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Telemetry Drawer -->
+                <div class="drawer-content" id="drawer-metrics">
+                    <div class="drawer-header">Telemetry</div>
+                    <div class="metrics-list">
+                        <div class="metric-card">
+                            <span class="metric-label">Exit Code</span>
+                            <strong id="metric-exitcode" class="metric-value null">No execution</strong>
+                        </div>
+                        <div class="metric-card">
+                            <span class="metric-label">Compilation</span>
+                            <span id="metric-compiletime" class="metric-value text-muted">N/A</span>
+                        </div>
+                        <div class="metric-card">
+                            <span class="metric-label">Execution</span>
+                            <span id="metric-executiontime" class="metric-value text-muted">N/A</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Settings Drawer -->
+                <div class="drawer-content" id="drawer-settings">
+                    <div class="drawer-header">Settings</div>
+                    <div class="settings-list">
+                        <div class="settings-group">
+                            <span class="settings-label">Editor Font:</span>
+                            <div class="settings-box">JetBrains Mono</div>
+                        </div>
+                        <div class="settings-group">
+                            <span class="settings-label">Font Size:</span>
+                            <div class="settings-box">14px</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Center: Editor Area -->
+            <section class="editor-section">
+                <div id="editor-container"></div>
+            </section>
+
+            <!-- Right Pane: Tabs Panel -->
+            <section class="right-panel">
+                <div class="panel-tabs-header">
+                    <div class="tabs-buttons">
+                        <button class="tab-button active" data-tab="console">Console</button>
+                        <button class="tab-button" data-tab="input">Input (stdin)</button>
+                        <button class="tab-button" data-tab="ast">AST Viewer</button>
+                    </div>
+                </div>
+
+                <!-- Panel Tab Contents -->
+                <div class="panel-body">
+                    <!-- Console Content -->
+                    <div class="tab-pane active" id="tab-console">
+                        <div class="console-box" id="console-output">
+                            <div class="console-line placeholder">Click "Run Code" to view program output.</div>
+                        </div>
+                    </div>
+
+                    <!-- Input Content -->
+                    <div class="tab-pane" id="tab-input">
+                        <textarea id="stdin-textarea" placeholder="Enter inputs here. Each input on a new line..."></textarea>
+                    </div>
+
+                    <!-- AST Content -->
+                    <div class="tab-pane" id="tab-ast">
+                        <div class="ast-box" id="ast-viewer-content">
+                            <div class="ast-node">
+                                <span class="ast-node-type font-bold green-text">TranslationUnit</span>
+                                <div class="ast-node-children">
+                                    <div>├─ <span class="white-text">FunctionDecl</span> (main)</div>
+                                    <div class="pl-4">├─ <span class="blue-text">Type</span>: int</div>
+                                    <div class="pl-4">└─ <span class="white-text">CompoundStmt</span></div>
+                                    <div class="pl-8">├─ <span class="white-text">DeclStmt</span> (g)</div>
+                                    <div class="pl-12">└─ <span class="blue-text">Type</span>: Greeter</div>
+                                    <div class="pl-8">└─ <span class="white-text">CallExpr</span> (greet)</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </div>
+
+        <!-- Bottom VS Code Status Bar -->
+        <footer class="status-bar">
+            <div class="status-bar-left">
+                <span class="status-ready-badge">READY</span>
+                <span>Target: x86-64 Linux</span>
+                <span class="status-bar-sep">|</span>
+                <span>Compiler: mcpc 1.0</span>
+            </div>
+            <div class="status-bar-right">
+                <span id="status-execution-time" style="display:none;">Execution time: 0ms</span>
+                <span id="status-language-label">Lang: MiniCPP</span>
+                <span>Spaces: 4</span>
+                <span>UTF-8</span>
+            </div>
+        </footer>
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.39.0/min/vs/loader.min.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>

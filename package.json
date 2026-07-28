@@ -1,0 +1,29 @@
+{
+  "name": "mcpc-desktop-compiler",
+  "version": "1.0.0",
+  "description": "Desktop Application and Web Interface for MCPC MiniCPP Compiler",
+  "main": "electron-main.js",
+  "scripts": {
+    "start": "node server.js",
+    "electron": "npx -y electron@latest .",
+    "desktop": "npx -y electron@latest .",
+    "build:exe": "npx electron-builder --win nsis"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  },
+  "devDependencies": {
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.mcpc.compiler",
+    "productName": "MCPC CodeForge Compiler Desktop",
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "target": "nsis"
+    }
+  }
+}

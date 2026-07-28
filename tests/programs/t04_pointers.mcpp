@@ -1,0 +1,15 @@
+void swap(int* a, int* b) {
+    int tmp = *a;
+    *a = *b;
+    *b = tmp;
+}
+int main() {
+    int x = 5;
+    int y = 9;
+    swap(&x, &y);
+    print_int(x);
+    print_char(10);
+    print_int(y);
+    print_char(10);
+    return x + y;
+}

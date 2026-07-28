@@ -1,0 +1,15 @@
+int main() {
+    int a = 7;
+    int b = 3;
+    print_int(a + b);
+    print_char(10);
+    print_int(a - b);
+    print_char(10);
+    print_int(a * b);
+    print_char(10);
+    print_int(a / b);
+    print_char(10);
+    print_int(a % b);
+    print_char(10);
+    return 0;
+}

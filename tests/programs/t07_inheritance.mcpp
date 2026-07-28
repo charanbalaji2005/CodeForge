@@ -1,0 +1,19 @@
+class Animal {
+    int age;
+    Animal(int a) { age = a; }
+    int getAge() { return age; }
+    int speak() { return 0; }
+};
+class Dog : public Animal {
+    Dog(int a) { age = a; }
+    int speak() { return 1; }
+    int bark() { return age * 100 + speak(); }
+};
+int main() {
+    Dog d = new Dog(7);
+    print_int(d.getAge());
+    print_char(10);
+    print_int(d.bark());
+    print_char(10);
+    return 0;
+}

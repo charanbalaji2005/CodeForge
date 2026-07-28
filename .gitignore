@@ -1,0 +1,10 @@
+node_modules/
+dist/
+build/
+.next/
+temp/
+*.log
+*.exe
+.env
+codeforge/backend/.env
+codeforge/backend/jdk/

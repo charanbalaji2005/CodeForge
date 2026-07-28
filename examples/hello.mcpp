@@ -1,0 +1,36 @@
+// A small tour of what mcpc supports today.
+struct Point {
+    int x;
+    int y;
+};
+
+class Greeter {
+    int timesCalled;
+    Greeter() { timesCalled = 0; }
+    void greet() {
+        timesCalled = timesCalled + 1;
+        print_str("hello from mcpc!\n");
+    }
+};
+
+int factorial(int n) {
+    if (n <= 1) { return 1; }
+    return n * factorial(n - 1);
+}
+
+int main() {
+    Greeter g = new Greeter();
+    g.greet();
+    g.greet();
+
+    Point p;
+    p.x = 3;
+    p.y = 4;
+    print_int(p.x * p.x + p.y * p.y);
+    print_char(10);
+
+    print_int(factorial(6));
+    print_char(10);
+
+    return 0;
+}
