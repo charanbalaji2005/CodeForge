@@ -44,6 +44,16 @@ import {
   AlertTriangle,
   Send
 } from 'lucide-react';
+import dynamic from 'next/dynamic';
+
+const XTermTerminal = dynamic(() => import('./components/XTermTerminal'), {
+  ssr: false,
+  loading: () => (
+    <div className="flex-1 bg-[#0F172A] border border-[#334155] rounded-lg p-4 font-mono text-xs text-[#94A3B8] flex items-center justify-center">
+      <span>Initializing Interactive XTerm.js Terminal...</span>
+    </div>
+  )
+});
 
 const BACKEND_URL = 'http://localhost:5000';
 
@@ -236,6 +246,11 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState<'console' | 'input' | 'ast' | 'ai' | 'about'>('console');
   const [sidebarExpanded, setSidebarExpanded] = useState<boolean>(true);
   const [activeSidebar, setActiveSidebar] = useState<'explorer' | 'templates' | 'metrics' | 'settings'>('explorer');
+  
+  // Terminal Engine & Settings State
+  const [terminalEngine, setTerminalEngine] = useState<'xterm' | 'standard'>('xterm');
+  const [terminalCursorBlink, setTerminalCursorBlink] = useState<boolean>(true);
+  const [terminalFontSize, setTerminalFontSize] = useState<number>(13);
   
   // Execution Outputs
   const [isRunning, setIsRunning] = useState<boolean>(false);
@@ -1369,16 +1384,50 @@ export default function Home() {
             {activeSidebar === 'settings' && (
               <div className="flex flex-col">
                 <div className="px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-[#94A3B8] border-b border-[#334155]">
-                  Settings
+                  Settings & Terminal Options
                 </div>
                 <div className="p-3 text-xs text-[#F8FAFC] flex flex-col gap-3 leading-relaxed">
                   <div>
-                    <span className="text-[#94A3B8]">Editor Font:</span>
-                    <div className="font-mono bg-[#0F172A] p-1 border border-[#334155] mt-1 rounded text-center">JetBrains Mono</div>
+                    <span className="text-[#94A3B8] font-semibold">Terminal Engine:</span>
+                    <select
+                      value={terminalEngine}
+                      onChange={(e) => setTerminalEngine(e.target.value as any)}
+                      className="w-full mt-1 bg-[#0F172A] border border-[#334155] p-1.5 rounded text-white text-xs font-mono outline-none focus:border-[#F97316]"
+                    >
+                      <option value="xterm">⚡ XTerm.js Interactive Terminal</option>
+                      <option value="standard">Standard Console Output</option>
+                    </select>
                   </div>
                   <div>
-                    <span className="text-[#94A3B8]">Font Size:</span>
-                    <div className="font-mono bg-[#0F172A] p-1 border border-[#334155] mt-1 rounded text-center">14px</div>
+                    <span className="text-[#94A3B8] font-semibold">Terminal Cursor Blink:</span>
+                    <button
+                      onClick={() => setTerminalCursorBlink(!terminalCursorBlink)}
+                      className={`w-full mt-1 py-1.5 px-2 rounded border font-bold text-xs transition-colors ${
+                        terminalCursorBlink ? 'bg-[#F97316]/20 border-[#F97316] text-[#F97316]' : 'bg-[#0F172A] border-[#334155] text-[#94A3B8]'
+                      }`}
+                    >
+                      {terminalCursorBlink ? '⚡ Cursor Blink: ON' : 'OFF'}
+                    </button>
+                  </div>
+                  <div>
+                    <span className="text-[#94A3B8] font-semibold">Terminal Font Size:</span>
+                    <div className="flex gap-1.5 mt-1">
+                      {[12, 13, 14, 16].map(sz => (
+                        <button
+                          key={sz}
+                          onClick={() => setTerminalFontSize(sz)}
+                          className={`flex-1 py-1 rounded border text-xs font-mono font-bold transition-all ${
+                            terminalFontSize === sz ? 'bg-[#F97316] text-white border-[#F97316]' : 'bg-[#0F172A] border-[#334155] text-[#94A3B8]'
+                          }`}
+                        >
+                          {sz}px
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="pt-2 border-t border-[#334155]">
+                    <span className="text-[#94A3B8]">Editor Font:</span>
+                    <div className="font-mono bg-[#0F172A] p-1 border border-[#334155] mt-1 rounded text-center">JetBrains Mono</div>
                   </div>
                 </div>
               </div>
@@ -1496,84 +1545,147 @@ export default function Home() {
           <div className="flex-1 min-h-0 flex flex-col p-3">
             {activeTab === 'console' && (
               <div className="flex-1 flex flex-col min-h-0">
-                <div className="flex-1 rounded border border-[#334155] bg-[#0F172A] p-3 font-mono text-xs overflow-y-auto leading-relaxed flex flex-col gap-2">
-                  {isRunning && (
-                    <div className="text-[#F8FAFC] flex items-center gap-2">
-                      <Cpu size={12} className="animate-spin text-[#F97316]" />
-                      <span>Compiling and executing code...</span>
-                    </div>
-                  )}
-
-                  {!isRunning && !stdout && !stderr && (
-                    <div className="text-[#94A3B8] italic">Click "Run Code" to view program output. You can type on-the-spot inputs directly in the prompt line below!</div>
-                  )}
-
-                  {stderr && (
-                    <div className="flex flex-col gap-2">
-                      <div className="text-[#EF4444] whitespace-pre-wrap font-bold bg-[#EF4444]/10 border border-[#EF4444]/20 p-3 rounded-lg">
-                        {stderr}
-                      </div>
-                      {/* Quick Auto-Fix Trigger */}
-                      <button
-                        onClick={handleAiAutoFix}
-                        className="py-1.5 px-3 bg-[#F97316] hover:bg-[#EA580C] text-white font-bold text-xs rounded-lg flex items-center justify-center gap-1.5 transition-all shadow-md"
-                      >
-                        <Wrench size={12} />
-                        <span>Run AI Error Auto-Fix</span>
-                      </button>
-                    </div>
-                  )}
-
-                  {stdout && (
-                    <div className="whitespace-pre-wrap text-[#F8FAFC]">
-                      {stdout}
-                    </div>
-                  )}
-                </div>
-
-                {/* Interactive On-The-Spot Console Terminal Input Form */}
-                <form
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    if (!consoleInputLine) return;
-                    const nextInput = stdin ? `${stdin}\n${consoleInputLine}` : consoleInputLine;
-                    setStdin(nextInput);
-                    setConsoleInputLine('');
-                    handleRun(nextInput);
-                  }}
-                  className="mt-2 flex items-center gap-2 bg-[#0F172A] border border-[#334155] focus-within:border-[#F97316] rounded-lg p-1.5 shrink-0"
-                >
-                  <span className="text-[#F97316] font-mono font-bold text-xs pl-2">&gt;</span>
-                  <input
-                    type="text"
-                    value={consoleInputLine}
-                    onChange={(e) => setConsoleInputLine(e.target.value)}
-                    placeholder="Type user input on the spot (e.g. Charan, 85, 90) & press Enter..."
-                    className="flex-1 bg-transparent text-xs font-mono text-white outline-none placeholder-[#64748B]"
-                  />
-                  <button
-                    type="submit"
-                    disabled={isRunning}
-                    className="py-1 px-3 bg-[#F97316] hover:bg-[#EA580C] disabled:opacity-50 text-white text-xs font-bold rounded flex items-center gap-1 transition-all"
-                  >
-                    <Send size={11} />
-                    <span>Send Input</span>
-                  </button>
-                  {stdin && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setStdin('');
-                        setConsoleInputLine('');
-                        handleRun('');
+                {terminalEngine === 'xterm' ? (
+                  <div className="flex-1 flex flex-col min-h-0 gap-2">
+                    <XTermTerminal
+                      stdout={stdout}
+                      stderr={stderr}
+                      isRunning={isRunning}
+                      onSendInput={(typedLine) => {
+                        const nextInput = stdin ? `${stdin}\n${typedLine}` : typedLine;
+                        setStdin(nextInput);
+                        handleRun(nextInput);
                       }}
-                      title="Clear Inputs"
-                      className="py-1 px-2.5 bg-[#334155] hover:bg-[#475569] text-white text-xs rounded transition-all"
+                      onClear={() => {
+                        setStdout('');
+                        setStderr('');
+                      }}
+                    />
+                    {/* Quick Input Bar below XTerm for mouse users */}
+                    <form
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        if (!consoleInputLine) return;
+                        const nextInput = stdin ? `${stdin}\n${consoleInputLine}` : consoleInputLine;
+                        setStdin(nextInput);
+                        setConsoleInputLine('');
+                        handleRun(nextInput);
+                      }}
+                      className="flex items-center gap-2 bg-[#0F172A] border border-[#334155] focus-within:border-[#F97316] rounded-lg p-1.5 shrink-0"
                     >
-                      Clear Inputs
-                    </button>
-                  )}
-                </form>
+                      <span className="text-[#F97316] font-mono font-bold text-xs pl-2">&gt;</span>
+                      <input
+                        type="text"
+                        value={consoleInputLine}
+                        onChange={(e) => setConsoleInputLine(e.target.value)}
+                        placeholder="Type stdin on the spot (e.g. Charan, 85, 90) & press Enter..."
+                        className="flex-1 bg-transparent text-xs font-mono text-white outline-none placeholder-[#64748B]"
+                      />
+                      <button
+                        type="submit"
+                        disabled={isRunning}
+                        className="py-1 px-3 bg-[#F97316] hover:bg-[#EA580C] disabled:opacity-50 text-white text-xs font-bold rounded flex items-center gap-1 transition-all"
+                      >
+                        <Send size={11} />
+                        <span>Send Input</span>
+                      </button>
+                      {stdin && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setStdin('');
+                            setConsoleInputLine('');
+                            handleRun('');
+                          }}
+                          title="Clear Inputs"
+                          className="py-1 px-2.5 bg-[#334155] hover:bg-[#475569] text-white text-xs rounded transition-all"
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </form>
+                  </div>
+                ) : (
+                  <div className="flex-1 flex flex-col min-h-0">
+                    <div className="flex-1 rounded border border-[#334155] bg-[#0F172A] p-3 font-mono text-xs overflow-y-auto leading-relaxed flex flex-col gap-2">
+                      {isRunning && (
+                        <div className="text-[#F8FAFC] flex items-center gap-2">
+                          <Cpu size={12} className="animate-spin text-[#F97316]" />
+                          <span>Compiling and executing code...</span>
+                        </div>
+                      )}
+
+                      {!isRunning && !stdout && !stderr && (
+                        <div className="text-[#94A3B8] italic">Click "Run Code" to view program output. You can type on-the-spot inputs directly in the prompt line below!</div>
+                      )}
+
+                      {stderr && (
+                        <div className="flex flex-col gap-2">
+                          <div className="text-[#EF4444] whitespace-pre-wrap font-bold bg-[#EF4444]/10 border border-[#EF4444]/20 p-3 rounded-lg">
+                            {stderr}
+                          </div>
+                          {/* Quick Auto-Fix Trigger */}
+                          <button
+                            onClick={handleAiAutoFix}
+                            className="py-1.5 px-3 bg-[#F97316] hover:bg-[#EA580C] text-white font-bold text-xs rounded-lg flex items-center justify-center gap-1.5 transition-all shadow-md"
+                          >
+                            <Wrench size={12} />
+                            <span>Run AI Error Auto-Fix</span>
+                          </button>
+                        </div>
+                      )}
+
+                      {stdout && (
+                        <div className="whitespace-pre-wrap text-[#F8FAFC]">
+                          {stdout}
+                        </div>
+                      )}
+                    </div>
+
+                    <form
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        if (!consoleInputLine) return;
+                        const nextInput = stdin ? `${stdin}\n${consoleInputLine}` : consoleInputLine;
+                        setStdin(nextInput);
+                        setConsoleInputLine('');
+                        handleRun(nextInput);
+                      }}
+                      className="mt-2 flex items-center gap-2 bg-[#0F172A] border border-[#334155] focus-within:border-[#F97316] rounded-lg p-1.5 shrink-0"
+                    >
+                      <span className="text-[#F97316] font-mono font-bold text-xs pl-2">&gt;</span>
+                      <input
+                        type="text"
+                        value={consoleInputLine}
+                        onChange={(e) => setConsoleInputLine(e.target.value)}
+                        placeholder="Type user input on the spot (e.g. Charan, 85, 90) & press Enter..."
+                        className="flex-1 bg-transparent text-xs font-mono text-white outline-none placeholder-[#64748B]"
+                      />
+                      <button
+                        type="submit"
+                        disabled={isRunning}
+                        className="py-1 px-3 bg-[#F97316] hover:bg-[#EA580C] disabled:opacity-50 text-white text-xs font-bold rounded flex items-center gap-1 transition-all"
+                      >
+                        <Send size={11} />
+                        <span>Send Input</span>
+                      </button>
+                      {stdin && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setStdin('');
+                            setConsoleInputLine('');
+                            handleRun('');
+                          }}
+                          title="Clear Inputs"
+                          className="py-1 px-2.5 bg-[#334155] hover:bg-[#475569] text-white text-xs rounded transition-all"
+                        >
+                          Clear Inputs
+                        </button>
+                      )}
+                    </form>
+                  </div>
+                )}
               </div>
             )}
 
