@@ -235,12 +235,12 @@ export default function Home() {
   // Workspace Files & State
   const [files, setFiles] = useState<WorkspaceFile[]>([
     { id: 'main.mcpp', name: 'main.mcpp', language: 'mcpp', content: DEFAULT_TEMPLATES.mcpp },
-    { id: 'input.txt', name: 'input.txt', language: 'plaintext', content: '15 27\nCharan' }
+    { id: 'input.txt', name: 'input.txt', language: 'plaintext', content: '' }
   ]);
   const [activeFileId, setActiveFileId] = useState<string>('main.mcpp');
-  const [openTabIds, setOpenTabIds] = useState<string[]>(['main.mcpp', 'input.txt']);
+  const [openTabIds, setOpenTabIds] = useState<string[]>(['main.mcpp']);
   const [language, setLanguage] = useState<string>('mcpp');
-  const [stdin, setStdin] = useState<string>('15 27\nCharan');
+  const [stdin, setStdin] = useState<string>('');
   
   // Tabs & panels
   const [activeTab, setActiveTab] = useState<'console' | 'input' | 'ast' | 'ai' | 'about'>('console');
@@ -1533,12 +1533,27 @@ export default function Home() {
                 <span>AI Suite</span>
               </button>
             </div>
-            <button
-              onClick={() => setActiveTab('about')}
-              className={`p-2 text-xs font-semibold text-[#94A3B8] hover:text-white transition-colors shrink-0`}
-            >
-              <Info size={13} />
-            </button>
+            <div className="flex items-center gap-2 pr-2">
+              <button
+                onClick={() => {
+                  setStdin('');
+                  setStdout('');
+                  setStderr('');
+                  setConsoleInputLine('');
+                }}
+                className="px-2.5 py-1 text-[11px] font-bold bg-[#334155] hover:bg-[#475569] text-white rounded flex items-center gap-1 transition-all"
+                title="Clear Terminal Output & Reset Stdin"
+              >
+                <Trash2 size={11} />
+                <span>Clear Terminal</span>
+              </button>
+              <button
+                onClick={() => setActiveTab('about')}
+                className={`p-2 text-xs font-semibold text-[#94A3B8] hover:text-white transition-colors shrink-0`}
+              >
+                <Info size={13} />
+              </button>
+            </div>
           </div>
 
           {/* Panel contents */}
