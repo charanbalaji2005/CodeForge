@@ -41,7 +41,8 @@ import {
   MessageSquareCode,
   FileSearch,
   Wrench,
-  AlertTriangle
+  AlertTriangle,
+  Send
 } from 'lucide-react';
 
 const BACKEND_URL = 'http://localhost:5000';
