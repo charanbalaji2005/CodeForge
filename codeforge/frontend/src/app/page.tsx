@@ -674,7 +674,10 @@ export default function Home() {
     });
   };
 
-  const handleRun = async () => {
+  const [consoleInputLine, setConsoleInputLine] = useState<string>('');
+
+  const handleRun = async (overrideStdin?: string) => {
+    const inputToUse = overrideStdin !== undefined ? overrideStdin : stdin;
     setIsRunning(true);
     setStdout('');
     setStderr('');
@@ -690,7 +693,7 @@ export default function Home() {
         body: JSON.stringify({
           language,
           code: currentCode,
-          stdin
+          stdin: inputToUse
         })
       });
       const data = await res.json();
@@ -1454,17 +1457,7 @@ export default function Home() {
                     : 'text-[#94A3B8] hover:text-[#F8FAFC]'
                 }`}
               >
-                Console
-              </button>
-              <button
-                onClick={() => setActiveTab('input')}
-                className={`px-3.5 py-2 text-xs font-semibold border-r border-[#334155] transition-colors shrink-0 ${
-                  activeTab === 'input'
-                    ? 'bg-[#1E293B] text-white'
-                    : 'text-[#94A3B8] hover:text-[#F8FAFC]'
-                }`}
-              >
-                Input
+                Console (Interactive Terminal)
               </button>
               <button
                 onClick={() => setActiveTab('ast')}
@@ -1511,7 +1504,7 @@ export default function Home() {
                   )}
 
                   {!isRunning && !stdout && !stderr && (
-                    <div className="text-[#94A3B8] italic">Click "Run Code" to view program output.</div>
+                    <div className="text-[#94A3B8] italic">Click "Run Code" to view program output. You can type on-the-spot inputs directly in the prompt line below!</div>
                   )}
 
                   {stderr && (
@@ -1536,17 +1529,50 @@ export default function Home() {
                     </div>
                   )}
                 </div>
-              </div>
-            )}
 
-            {activeTab === 'input' && (
-              <div className="flex-1 flex flex-col">
-                <textarea
-                  value={stdin}
-                  onChange={(e) => setStdin(e.target.value)}
-                  placeholder="Enter inputs here. Each input on a new line..."
-                  className="flex-1 rounded border border-[#334155] bg-[#0F172A] p-3 font-mono text-xs text-[#F8FAFC] resize-none outline-none focus:border-[#F97316]"
-                />
+                {/* Interactive On-The-Spot Console Terminal Input Form */}
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    if (!consoleInputLine) return;
+                    const nextInput = stdin ? `${stdin}\n${consoleInputLine}` : consoleInputLine;
+                    setStdin(nextInput);
+                    setConsoleInputLine('');
+                    handleRun(nextInput);
+                  }}
+                  className="mt-2 flex items-center gap-2 bg-[#0F172A] border border-[#334155] focus-within:border-[#F97316] rounded-lg p-1.5 shrink-0"
+                >
+                  <span className="text-[#F97316] font-mono font-bold text-xs pl-2">&gt;</span>
+                  <input
+                    type="text"
+                    value={consoleInputLine}
+                    onChange={(e) => setConsoleInputLine(e.target.value)}
+                    placeholder="Type user input on the spot (e.g. Charan, 85, 90) & press Enter..."
+                    className="flex-1 bg-transparent text-xs font-mono text-white outline-none placeholder-[#64748B]"
+                  />
+                  <button
+                    type="submit"
+                    disabled={isRunning}
+                    className="py-1 px-3 bg-[#F97316] hover:bg-[#EA580C] disabled:opacity-50 text-white text-xs font-bold rounded flex items-center gap-1 transition-all"
+                  >
+                    <Send size={11} />
+                    <span>Send Input</span>
+                  </button>
+                  {stdin && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setStdin('');
+                        setConsoleInputLine('');
+                        handleRun('');
+                      }}
+                      title="Clear Inputs"
+                      className="py-1 px-2.5 bg-[#334155] hover:bg-[#475569] text-white text-xs rounded transition-all"
+                    >
+                      Clear Inputs
+                    </button>
+                  )}
+                </form>
               </div>
             )}
 
