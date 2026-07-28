@@ -21,6 +21,7 @@ export default function XTermTerminal({
   const terminalRef = useRef<HTMLDivElement>(null);
   const termInstanceRef = useRef<any>(null);
   const fitAddonRef = useRef<any>(null);
+  const lineBufferRef = useRef<string>(''); // Keep buffer in ref to prevent stale closures
 
   // Initialize XTerm.js terminal once
   useEffect(() => {
@@ -75,18 +76,28 @@ export default function XTermTerminal({
         fitAddonRef.current = fitAddon;
 
         // Welcome banner
-        term.writeln('\x1b[1;36mCodeForge Interactive Terminal v2.0\x1b[0m');
-        term.writeln('\x1b[90mPowered by XTerm.js + Socket.IO — Real stdin/stdout streaming\x1b[0m');
+        term.writeln('\x1b[1;36mCodeForge Interactive Terminal v2.1\x1b[0m');
+        term.writeln('\x1b[90mPowered by XTerm.js + Socket.IO — Stateful Stdin/Stdout Engine\x1b[0m');
         term.writeln('');
 
-        // Handle Keystroke Inputs → send to running process via socket
+        // Handle keystrokes using smart line-buffering & backspace echo
         term.onData((data: string) => {
-          if (socket && socket.connected) {
-            socket.emit('terminal-input', data);
+          if (data === '\r') {
+            term.write('\r\n');
+            if (socket && socket.connected) {
+              socket.emit('terminal-input', lineBufferRef.current + '\n');
+            }
+            lineBufferRef.current = '';
+          } else if (data === '\x7f' || data === '\b') {
+            if (lineBufferRef.current.length > 0) {
+              lineBufferRef.current = lineBufferRef.current.slice(0, -1);
+              term.write('\b \b'); // Erase last character visually on screen
+            }
+          } else {
+            // Echo character on screen and add to line buffer
+            term.write(data);
+            lineBufferRef.current += data;
           }
-          // Echo printable characters locally for responsiveness
-          // (the process will also echo via stdout on most terminals,
-          //  but for raw mode this ensures immediate feedback)
         });
 
         const handleResize = () => {
@@ -111,7 +122,7 @@ export default function XTermTerminal({
         termInstanceRef.current = null;
       }
     };
-  }, []); // Only runs once on mount
+  }, [socket]); // Re-bind onData if socket client changes
 
   // When cursorBlink or fontSize changes, update options on existing terminal
   useEffect(() => {
@@ -144,27 +155,15 @@ export default function XTermTerminal({
     };
   }, [socket, onExited]);
 
-  // Clear terminal when isRunning becomes true (new compilation started)
-  useEffect(() => {
-    if (isRunning) {
-      const term = termInstanceRef.current;
-      if (term) {
-        term.clear();
-        term.writeln('\x1b[1;36mCodeForge Interactive Terminal v2.0\x1b[0m');
-        term.writeln('\x1b[90mPowered by XTerm.js + Socket.IO — Real stdin/stdout streaming\x1b[0m');
-        term.writeln('');
-      }
-    }
-  }, [isRunning]);
-
-  // Expose a clear function via a stable ref for the parent (optional)
+  // Expose a clear function via a stable ref for the parent
   const clearTerminal = useCallback(() => {
     const term = termInstanceRef.current;
     if (term) {
       term.clear();
-      term.writeln('\x1b[1;36mCodeForge Interactive Terminal v2.0\x1b[0m');
-      term.writeln('\x1b[90mPowered by XTerm.js + Socket.IO — Real stdin/stdout streaming\x1b[0m');
+      term.writeln('\x1b[1;36mCodeForge Interactive Terminal v2.1\x1b[0m');
+      term.writeln('\x1b[90mPowered by XTerm.js + Socket.IO — Stateful Stdin/Stdout Engine\x1b[0m');
       term.writeln('');
+      lineBufferRef.current = '';
     }
   }, []);
 

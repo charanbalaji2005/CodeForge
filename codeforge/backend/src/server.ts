@@ -4,8 +4,8 @@ import dotenv from 'dotenv';
 import dns from 'dns';
 import http from 'http';
 import { Server as SocketIOServer } from 'socket.io';
-import { ChildProcessWithoutNullStreams } from 'child_process';
-import { runCode, compileOnly, spawnInteractive, cleanUpSessionDir, LANGUAGE_CONFIGS } from './runner';
+import { runCode } from './runner';
+import { LANGUAGE_CONFIGS } from './compiler/compile';
 import { OAuth2Client } from 'google-auth-library';
 
 // Force Node.js to use IPv4 first for all DNS resolution
@@ -293,6 +293,8 @@ app.get('/download', (req, res) => {
 // ============================================================
 // HTTP Server + Socket.IO — Persistent Interactive Terminal
 // ============================================================
+import { registerTerminalSocket } from './socket/terminal.socket';
+
 const httpServer = http.createServer(app);
 
 const io = new SocketIOServer(httpServer, {
@@ -302,123 +304,7 @@ const io = new SocketIOServer(httpServer, {
   }
 });
 
-// Track one running process per socket connection
-const runningProcesses = new Map<string, {
-  process: ChildProcessWithoutNullStreams;
-  sessionDir: string;
-}>();
-
-io.on('connection', (socket) => {
-  console.log(`[Socket.IO] Client connected: ${socket.id}`);
-
-  // ── Event: "compile" ──────────────────────────────────────
-  // Compile the code and spawn the process with open stdin/stdout pipes
-  socket.on('compile', async (data: { language: string; code: string }) => {
-    const { language, code } = data;
-
-    // Kill any existing running process for this socket
-    const existing = runningProcesses.get(socket.id);
-    if (existing) {
-      try { existing.process.kill('SIGKILL'); } catch (_) {}
-      cleanUpSessionDir(existing.sessionDir);
-      runningProcesses.delete(socket.id);
-    }
-
-    socket.emit('terminal-output', `\x1b[33m⚡ Compiling ${language.toUpperCase()}...\x1b[0m\r\n`);
-
-    try {
-      // Step 1: Compile
-      const compiled = await compileOnly(language, code);
-
-      if (compiled.stderr && compiled.stderr.trim()) {
-        socket.emit('terminal-output', `\x1b[33mCompiler warnings:\x1b[0m\r\n${compiled.stderr}\r\n`);
-      }
-      socket.emit('terminal-output', `\x1b[32m✅ Compiled in ${compiled.compileTime}ms. Starting process...\x1b[0m\r\n\r\n`);
-
-      // Step 2: Spawn interactive process
-      const child = spawnInteractive(language, compiled.sessionDir, compiled.wslSessionDir);
-
-      runningProcesses.set(socket.id, {
-        process: child,
-        sessionDir: compiled.sessionDir
-      });
-
-      // Stream stdout to terminal
-      child.stdout.on('data', (chunk: Buffer) => {
-        const text = chunk.toString().replace(/\n/g, '\r\n');
-        socket.emit('terminal-output', text);
-      });
-
-      // Stream stderr to terminal  
-      child.stderr.on('data', (chunk: Buffer) => {
-        const text = chunk.toString().replace(/\n/g, '\r\n');
-        socket.emit('terminal-output', `\x1b[31m${text}\x1b[0m`);
-      });
-
-      // Process exit
-      child.on('close', (code) => {
-        runningProcesses.delete(socket.id);
-        cleanUpSessionDir(compiled.sessionDir);
-        const exitMsg = code === 0
-          ? `\r\n\x1b[32m[Process exited with code ${code}]\x1b[0m\r\n`
-          : `\r\n\x1b[31m[Process exited with code ${code}]\x1b[0m\r\n`;
-        socket.emit('terminal-output', exitMsg);
-        socket.emit('terminal-exit', { code });
-      });
-
-      child.on('error', (err) => {
-        socket.emit('terminal-output', `\r\n\x1b[31m[Process error: ${err.message}]\x1b[0m\r\n`);
-        socket.emit('terminal-exit', { code: 1 });
-        runningProcesses.delete(socket.id);
-      });
-
-      console.log(`[Socket.IO] Process spawned for socket ${socket.id} [${language}]`);
-
-    } catch (err: any) {
-      const errMsg = err.stderr || err.message || 'Compilation failed';
-      socket.emit('terminal-output', `\x1b[31m❌ Compilation Error:\x1b[0m\r\n${errMsg.replace(/\n/g, '\r\n')}\r\n`);
-      socket.emit('terminal-exit', { code: 1 });
-      console.error(`[Socket.IO] Compile error for socket ${socket.id}:`, errMsg);
-    }
-  });
-
-  // ── Event: "terminal-input" ───────────────────────────────
-  // Write user keystrokes directly to the running process's stdin
-  socket.on('terminal-input', (data: string) => {
-    const running = runningProcesses.get(socket.id);
-    if (running && running.process.stdin && !running.process.stdin.destroyed) {
-      try {
-        running.process.stdin.write(data);
-      } catch (err) {
-        console.error(`[Socket.IO] Failed to write stdin for socket ${socket.id}:`, err);
-      }
-    }
-  });
-
-  // ── Event: "terminal-kill" ────────────────────────────────
-  // Kill the running process on demand
-  socket.on('terminal-kill', () => {
-    const running = runningProcesses.get(socket.id);
-    if (running) {
-      try { running.process.kill('SIGKILL'); } catch (_) {}
-      cleanUpSessionDir(running.sessionDir);
-      runningProcesses.delete(socket.id);
-      socket.emit('terminal-output', '\r\n\x1b[31m[Process killed by user]\x1b[0m\r\n');
-      socket.emit('terminal-exit', { code: -1 });
-    }
-  });
-
-  // ── Cleanup on disconnect ─────────────────────────────────
-  socket.on('disconnect', () => {
-    console.log(`[Socket.IO] Client disconnected: ${socket.id}`);
-    const running = runningProcesses.get(socket.id);
-    if (running) {
-      try { running.process.kill('SIGKILL'); } catch (_) {}
-      cleanUpSessionDir(running.sessionDir);
-      runningProcesses.delete(socket.id);
-    }
-  });
-});
+registerTerminalSocket(io);
 
 // Start HTTP + WebSocket server
 httpServer.listen(PORT, () => {

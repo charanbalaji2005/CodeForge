@@ -2,11 +2,5 @@
   "buildCommand": "cd codeforge/frontend && npm install && npm run build",
   "outputDirectory": "codeforge/frontend/.next",
   "installCommand": "cd codeforge/frontend && npm install",
-  "framework": "nextjs",
-  "rewrites": [
-    {
-      "source": "/(.*)",
-      "destination": "/$1"
-    }
-  ]
+  "framework": "nextjs"
 }

@@ -47,7 +47,7 @@ import {
 import dynamic from 'next/dynamic';
 import type { Socket } from 'socket.io-client';
 
-const XTermTerminal = dynamic(() => import('./components/XTermTerminal'), {
+const XTermTerminal = dynamic(() => import('./components/terminal/XTermTerminal'), {
   ssr: false,
   loading: () => (
     <div className="flex-1 bg-[#0F172A] border border-[#334155] rounded-lg p-4 font-mono text-xs text-[#94A3B8] flex items-center justify-center">
@@ -230,6 +230,7 @@ export default function Home() {
   const [viewMode, setViewMode] = useState<'landing' | 'ide'>('landing');
   const [showAuthModal, setShowAuthModal] = useState<boolean>(false);
   const [showProfileDropdown, setShowProfileDropdown] = useState<boolean>(false);
+  const [showBottomPanel, setShowBottomPanel] = useState<boolean>(true);
   const [cookieConsent, setCookieConsent] = useState<boolean>(true);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
 
@@ -1521,332 +1522,363 @@ export default function Home() {
               }}
             />
           </div>
-        </section>
 
-        {/* Right Pane: Output Panel with AST Visualization & Groq AI Tabs */}
-        <section className="w-full md:w-[420px] lg:w-[470px] shrink-0 bg-[#1E293B] border-l border-[#334155] flex flex-col">
-          {/* Panel header tabs */}
-          <div className="flex items-center justify-between border-b border-[#334155] bg-[#0F172A] shrink-0">
-            <div className="flex gap-0.5 overflow-x-auto">
-              <button
-                onClick={() => setActiveTab('console')}
-                className={`px-3.5 py-2 text-xs font-semibold border-r border-[#334155] transition-colors shrink-0 ${
-                  activeTab === 'console'
-                    ? 'bg-[#1E293B] text-white'
-                    : 'text-[#94A3B8] hover:text-[#F8FAFC]'
-                }`}
-              >
-                Console (Interactive Terminal)
-              </button>
-              <button
-                onClick={() => setActiveTab('ast')}
-                className={`px-3.5 py-2 text-xs font-semibold border-r border-[#334155] transition-colors shrink-0 ${
-                  activeTab === 'ast'
-                    ? 'bg-[#1E293B] text-white'
-                    : 'text-[#94A3B8] hover:text-[#F8FAFC]'
-                }`}
-              >
-                AST Viewer
-              </button>
+          {/* Bottom Console / Output Panel (Console, AST Viewer, AI Suite) */}
+          {showBottomPanel && (
+            <div className="h-[280px] shrink-0 bg-[#1E293B] border-t border-[#334155] flex flex-col min-h-[150px]">
+              {/* Panel header tabs & controls */}
+              <div className="flex items-center justify-between border-b border-[#334155] bg-[#0F172A] shrink-0">
+                <div className="flex gap-0.5 overflow-x-auto">
+                  <button
+                    onClick={() => setActiveTab('console')}
+                    className={`px-3.5 py-2 text-xs font-semibold border-r border-[#334155] transition-colors shrink-0 ${
+                      activeTab === 'console'
+                        ? 'bg-[#1E293B] text-white'
+                        : 'text-[#94A3B8] hover:text-[#F8FAFC]'
+                    }`}
+                  >
+                    Console (Interactive Terminal)
+                  </button>
+                  <button
+                    onClick={() => setActiveTab('ast')}
+                    className={`px-3.5 py-2 text-xs font-semibold border-r border-[#334155] transition-colors shrink-0 ${
+                      activeTab === 'ast'
+                        ? 'bg-[#1E293B] text-white'
+                        : 'text-[#94A3B8] hover:text-[#F8FAFC]'
+                    }`}
+                  >
+                    AST Viewer
+                  </button>
+                  <button
+                    onClick={() => setActiveTab('ai')}
+                    className={`px-3.5 py-2 text-xs font-semibold border-r border-[#334155] transition-colors flex items-center gap-1.5 shrink-0 ${
+                      activeTab === 'ai'
+                        ? 'bg-[#1E293B] text-[#F97316] font-bold'
+                        : 'text-[#94A3B8] hover:text-[#F97316]'
+                    }`}
+                  >
+                    <Bot size={13} className="text-[#F97316]" />
+                    <span>AI Suite</span>
+                  </button>
+                </div>
 
-              {/* GROQ AI SUITE TAB */}
-              <button
-                onClick={() => setActiveTab('ai')}
-                className={`px-3.5 py-2 text-xs font-semibold border-r border-[#334155] transition-colors flex items-center gap-1.5 shrink-0 ${
-                  activeTab === 'ai'
-                    ? 'bg-[#1E293B] text-[#F97316] font-bold'
-                    : 'text-[#94A3B8] hover:text-[#F97316]'
-                }`}
-              >
-                <Bot size={13} className="text-[#F97316]" />
-                <span>AI Suite</span>
-              </button>
-            </div>
-            <div className="flex items-center gap-2 pr-2">
-              <button
-                onClick={() => {
-                  setStdin('');
-                  setStdout('');
-                  setStderr('');
-                  setConsoleInputLine('');
-                }}
-                className="px-2.5 py-1 text-[11px] font-bold bg-[#334155] hover:bg-[#475569] text-white rounded flex items-center gap-1 transition-all whitespace-nowrap shrink-0"
-                title="Clear Terminal Output & Reset Stdin"
-              >
-                <Trash2 size={11} />
-                <span>Clear Terminal</span>
-              </button>
-              <button
-                onClick={() => setActiveTab('about')}
-                className={`p-2 text-xs font-semibold text-[#94A3B8] hover:text-white transition-colors shrink-0`}
-              >
-                <Info size={13} />
-              </button>
-            </div>
-          </div>
-
-          {/* Panel contents */}
-          <div className="flex-1 min-h-0 flex flex-col p-3">
-            {activeTab === 'console' && (
-              <div className="flex-1 flex flex-col min-h-0">
-                {terminalEngine === 'xterm' ? (
-                  <div className="flex-1 flex flex-col min-h-0 gap-2">
-                    <XTermTerminal
-                      socket={socket}
-                      isRunning={isRunning}
-                      onExited={() => setIsRunning(false)}
-                      cursorBlink={terminalCursorBlink}
-                      fontSize={terminalFontSize}
-                    />
-                    {/* Kill Process button — visible while process is running */}
-                    {isRunning && (
-                      <button
-                        onClick={() => {
-                          socket?.emit('terminal-kill');
-                          setIsRunning(false);
-                        }}
-                        className="shrink-0 py-1 px-3 bg-red-700 hover:bg-red-600 text-white text-xs font-bold rounded flex items-center gap-1.5 transition-all"
+                <div className="flex items-center gap-3 pr-3">
+                  {/* TERMINAL ENGINE SELECT DROPDOWN IN TOOLBAR */}
+                  {activeTab === 'console' && (
+                    <div className="flex items-center gap-1.5 text-xs text-[#94A3B8]">
+                      <span className="font-semibold text-[10px] uppercase">Engine:</span>
+                      <select
+                        value={terminalEngine}
+                        onChange={(e) => setTerminalEngine(e.target.value as any)}
+                        className="bg-[#0F172A] border border-[#334155] px-2 py-0.5 rounded text-white text-[11px] font-mono outline-none focus:border-[#F97316] cursor-pointer"
                       >
-                        <X size={11} />
-                        <span>Kill Process</span>
-                      </button>
+                        <option value="xterm">Interactive (XTerm)</option>
+                        <option value="standard">Standard Batch</option>
+                      </select>
+                    </div>
+                  )}
+
+                  {/* Clear button */}
+                  <button
+                    onClick={() => {
+                      setStdin('');
+                      setStdout('');
+                      setStderr('');
+                      if (activeTab === 'console') {
+                        // Clear XTerm using exposed DOM helper
+                        const termDiv = document.getElementsByClassName('xterm')[0]?.parentElement;
+                        if (termDiv && (termDiv as any).__clearTerminal) {
+                          (termDiv as any).__clearTerminal();
+                        }
+                      }
+                    }}
+                    title="Clear Terminal / Output"
+                    className="p-1 rounded hover:bg-[#334155] text-[#94A3B8] hover:text-white transition-colors"
+                  >
+                    <Trash2 size={13} />
+                  </button>
+
+                  {/* Settings gear shortcut */}
+                  <button
+                    onClick={() => {
+                      setActiveSidebar('settings');
+                      setSidebarExpanded(true);
+                    }}
+                    title="Terminal Settings"
+                    className="p-1 rounded hover:bg-[#334155] text-[#94A3B8] hover:text-white transition-colors"
+                  >
+                    <Settings2 size={13} />
+                  </button>
+
+                  {/* Collapse chevron */}
+                  <button
+                    onClick={() => setShowBottomPanel(false)}
+                    title="Collapse Console Panel"
+                    className="p-1 rounded hover:bg-[#334155] text-[#94A3B8] hover:text-white transition-colors"
+                  >
+                    <ChevronDown size={14} />
+                  </button>
+                </div>
+              </div>
+
+              {/* Panel content area */}
+              <div className="flex-1 min-h-0 flex flex-col p-3">
+                {activeTab === 'console' && (
+                  <div className="flex-1 flex flex-col min-h-0">
+                    {terminalEngine === 'xterm' ? (
+                      <div className="flex-1 flex flex-col min-h-0 gap-2">
+                        <XTermTerminal
+                          socket={socket}
+                          isRunning={isRunning}
+                          onExited={() => setIsRunning(false)}
+                          cursorBlink={terminalCursorBlink}
+                          fontSize={terminalFontSize}
+                        />
+                        {/* Kill Process button */}
+                        {isRunning && (
+                          <button
+                            onClick={() => {
+                              socket?.emit('terminal-kill');
+                              setIsRunning(false);
+                            }}
+                            className="shrink-0 py-1 px-3 bg-red-700 hover:bg-red-600 text-white text-xs font-bold rounded flex items-center gap-1.5 transition-all w-fit"
+                          >
+                            <X size={11} />
+                            <span>Kill Process</span>
+                          </button>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="flex-1 flex flex-col min-h-0">
+                        <div className="flex-1 rounded border border-[#334155] bg-[#0F172A] p-3 font-mono text-xs overflow-y-auto leading-relaxed flex flex-col gap-2">
+                          {isRunning && (
+                            <div className="text-[#F8FAFC] flex items-center gap-2">
+                              <Cpu size={12} className="animate-spin text-[#F97316]" />
+                              <span>Compiling and executing code...</span>
+                            </div>
+                          )}
+
+                          {!isRunning && !stdout && !stderr && (
+                            <div className="text-[#94A3B8] italic">Click "Run Code" to view program output. You can type on-the-spot inputs directly in the prompt line below!</div>
+                          )}
+
+                          {stderr && (
+                            <div className="flex flex-col gap-2">
+                              <div className="text-[#EF4444] whitespace-pre-wrap font-bold bg-[#EF4444]/10 border border-[#EF4444]/20 p-3 rounded-lg">
+                                {stderr}
+                              </div>
+                              {/* Quick Auto-Fix Trigger */}
+                              <button
+                                onClick={handleAiAutoFix}
+                                className="py-1.5 px-3 bg-[#F97316] hover:bg-[#EA580C] text-white font-bold text-xs rounded-lg flex items-center justify-center gap-1.5 transition-all shadow-md w-fit"
+                              >
+                                <Wrench size={12} />
+                                <span>Run AI Error Auto-Fix</span>
+                              </button>
+                            </div>
+                          )}
+
+                          {stdout && (
+                            <div className="whitespace-pre-wrap text-[#F8FAFC]">
+                              {stdout}
+                            </div>
+                          )}
+                        </div>
+
+                        <form
+                          onSubmit={(e) => {
+                            e.preventDefault();
+                            if (!consoleInputLine) return;
+                            const nextInput = stdin ? `${stdin}\n${consoleInputLine}` : consoleInputLine;
+                            setStdin(nextInput);
+                            setConsoleInputLine('');
+                            handleRun(nextInput);
+                          }}
+                          className="mt-2 flex items-center gap-2 bg-[#0F172A] border border-[#334155] focus-within:border-[#F97316] rounded-lg p-1.5 shrink-0"
+                        >
+                          <span className="text-[#F97316] font-mono font-bold text-xs pl-2">&gt;</span>
+                          <input
+                            type="text"
+                            value={consoleInputLine}
+                            onChange={(e) => setConsoleInputLine(e.target.value)}
+                            placeholder="Type user input on the spot (e.g. Charan, 85, 90) & press Enter..."
+                            className="flex-1 bg-transparent text-xs font-mono text-white outline-none placeholder-[#64748B]"
+                          />
+                          <button
+                            type="submit"
+                            disabled={isRunning}
+                            className="py-1 px-3 bg-[#F97316] hover:bg-[#EA580C] disabled:opacity-50 text-white text-xs font-bold rounded flex items-center gap-1 transition-all"
+                          >
+                            <Send size={11} />
+                            <span>Send Input</span>
+                          </button>
+                          {stdin && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setStdin('');
+                                setConsoleInputLine('');
+                                handleRun('');
+                              }}
+                              title="Clear Inputs"
+                              className="py-1 px-2.5 bg-[#334155] hover:bg-[#475569] text-white text-xs rounded transition-all"
+                            >
+                              Clear Inputs
+                            </button>
+                          )}
+                        </form>
+                      </div>
                     )}
                   </div>
-                ) : (
-                  <div className="flex-1 flex flex-col min-h-0">
-                    <div className="flex-1 rounded border border-[#334155] bg-[#0F172A] p-3 font-mono text-xs overflow-y-auto leading-relaxed flex flex-col gap-2">
-                      {isRunning && (
-                        <div className="text-[#F8FAFC] flex items-center gap-2">
-                          <Cpu size={12} className="animate-spin text-[#F97316]" />
-                          <span>Compiling and executing code...</span>
-                        </div>
-                      )}
+                )}
 
-                      {!isRunning && !stdout && !stderr && (
-                        <div className="text-[#94A3B8] italic">Click "Run Code" to view program output. You can type on-the-spot inputs directly in the prompt line below!</div>
-                      )}
-
-                      {stderr && (
-                        <div className="flex flex-col gap-2">
-                          <div className="text-[#EF4444] whitespace-pre-wrap font-bold bg-[#EF4444]/10 border border-[#EF4444]/20 p-3 rounded-lg">
-                            {stderr}
-                          </div>
-                          {/* Quick Auto-Fix Trigger */}
-                          <button
-                            onClick={handleAiAutoFix}
-                            className="py-1.5 px-3 bg-[#F97316] hover:bg-[#EA580C] text-white font-bold text-xs rounded-lg flex items-center justify-center gap-1.5 transition-all shadow-md"
-                          >
-                            <Wrench size={12} />
-                            <span>Run AI Error Auto-Fix</span>
-                          </button>
-                        </div>
-                      )}
-
-                      {stdout && (
-                        <div className="whitespace-pre-wrap text-[#F8FAFC]">
-                          {stdout}
-                        </div>
-                      )}
+                {activeTab === 'ast' && (
+                  <div className="flex-1 overflow-y-auto leading-relaxed text-xs">
+                    <div className="mb-2 text-[11px] text-[#94A3B8] flex items-center justify-between font-mono">
+                      <span>Visual AST & Structural Code Tree</span>
+                      <span className="text-[#F97316] font-bold">{activeFile ? activeFile.name : ''}</span>
                     </div>
-
-                    <form
-                      onSubmit={(e) => {
-                        e.preventDefault();
-                        if (!consoleInputLine) return;
-                        const nextInput = stdin ? `${stdin}\n${consoleInputLine}` : consoleInputLine;
-                        setStdin(nextInput);
-                        setConsoleInputLine('');
-                        handleRun(nextInput);
-                      }}
-                      className="mt-2 flex items-center gap-2 bg-[#0F172A] border border-[#334155] focus-within:border-[#F97316] rounded-lg p-1.5 shrink-0"
-                    >
-                      <span className="text-[#F97316] font-mono font-bold text-xs pl-2">&gt;</span>
-                      <input
-                        type="text"
-                        value={consoleInputLine}
-                        onChange={(e) => setConsoleInputLine(e.target.value)}
-                        placeholder="Type user input on the spot (e.g. Charan, 85, 90) & press Enter..."
-                        className="flex-1 bg-transparent text-xs font-mono text-white outline-none placeholder-[#64748B]"
-                      />
-                      <button
-                        type="submit"
-                        disabled={isRunning}
-                        className="py-1 px-3 bg-[#F97316] hover:bg-[#EA580C] disabled:opacity-50 text-white text-xs font-bold rounded flex items-center gap-1 transition-all"
-                      >
-                        <Send size={11} />
-                        <span>Send Input</span>
-                      </button>
-                      {stdin && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setStdin('');
-                            setConsoleInputLine('');
-                            handleRun('');
-                          }}
-                          title="Clear Inputs"
-                          className="py-1 px-2.5 bg-[#334155] hover:bg-[#475569] text-white text-xs rounded transition-all"
-                        >
-                          Clear Inputs
-                        </button>
-                      )}
-                    </form>
+                    {generateAstVisualization(currentCode)}
                   </div>
                 )}
-              </div>
-            )}
 
-            {activeTab === 'ast' && (
-              <div className="flex-1 overflow-y-auto leading-relaxed text-xs">
-                <div className="mb-2 text-[11px] text-[#94A3B8] flex items-center justify-between font-mono">
-                  <span>Visual AST & Structural Code Tree</span>
-                  <span className="text-[#F97316] font-bold">{activeFile ? activeFile.name : ''}</span>
-                </div>
-                {generateAstVisualization(currentCode)}
-              </div>
-            )}
-
-            {/* GROQ AI SUITE CONTENT */}
-            {activeTab === 'ai' && (
-              <div className="flex-1 flex flex-col min-h-0 gap-3 overflow-y-auto">
-                {userProfile?.isGuest ? (
-                  /* EXCLUSIVE LOCKED BANNER FOR GUEST USERS */
-                  <div className="p-5 rounded-2xl bg-[#0F172A] border border-[#334155] flex flex-col gap-4 text-center">
-                    <div className="w-12 h-12 rounded-full bg-[#F97316]/10 text-[#F97316] flex items-center justify-center mx-auto">
-                      <Lock size={22} />
-                    </div>
-                    <div>
-                      <h4 className="font-bold text-white text-sm">Groq AI Suite is Exclusive to Signed-In Users</h4>
-                      <p className="text-xs text-[#94A3B8] mt-1.5 leading-relaxed">
-                        Sign in with Google to get instant AI Code Summaries, AI Error Auto-Fix, Code Generation, and MongoDB Atlas cloud synchronization!
-                      </p>
-                    </div>
-                    <button
-                      onClick={handleGoogleSignIn}
-                      className="py-2.5 px-4 bg-white hover:bg-gray-100 text-gray-900 font-bold text-xs rounded-xl flex items-center justify-center gap-2 transition-all shadow-md"
-                    >
-                      <svg className="w-4 h-4" viewBox="0 0 24 24">
-                        <path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.17z"/>
-                        <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.29v3.15C3.26 21.3 7.31 24 12 24z"/>
-                        <path fill="#FBBC05" d="M5.28 14.26c-.25-.72-.38-1.49-.38-2.26s.13-1.54.38-2.26V6.59H1.29C.47 8.23 0 10.06 0 12s.47 3.77 1.29 5.41l3.99-3.15z"/>
-                        <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.31 0 3.26 2.7 1.29 6.59l3.99 3.15c.95-2.83 3.6-4.99 6.72-4.99z"/>
-                      </svg>
-                      <span>Sign In with Google</span>
-                    </button>
-                  </div>
-                ) : (
-                  /* UNLOCKED AI SUITE FOR SIGNED-IN USERS */
-                  <div className="flex-1 flex flex-col gap-3 font-sans text-xs">
-                    {/* Action buttons toolbar */}
-                    <div className="grid grid-cols-3 gap-1.5 p-1 bg-[#0F172A] border border-[#334155] rounded-lg">
-                      <button
-                        onClick={handleAiSummary}
-                        className={`py-1.5 px-2 font-bold text-[11px] rounded transition-colors flex items-center justify-center gap-1 ${
-                          aiSubTab === 'summary' ? 'bg-[#F97316] text-white' : 'text-[#94A3B8] hover:text-white'
-                        }`}
-                      >
-                        <FileSearch size={12} />
-                        <span>Summary</span>
-                      </button>
-                      <button
-                        onClick={handleAiExplainCode}
-                        className={`py-1.5 px-2 font-bold text-[11px] rounded transition-colors flex items-center justify-center gap-1 ${
-                          aiSubTab === 'explain' ? 'bg-[#F97316] text-white' : 'text-[#94A3B8] hover:text-white'
-                        }`}
-                      >
-                        <Wand2 size={12} />
-                        <span>Explain</span>
-                      </button>
-                      <button
-                        onClick={handleAiAutoFix}
-                        className={`py-1.5 px-2 font-bold text-[11px] rounded transition-colors flex items-center justify-center gap-1 ${
-                          aiSubTab === 'autofix' ? 'bg-[#F97316] text-white' : 'text-[#94A3B8] hover:text-white'
-                        }`}
-                      >
-                        <Wrench size={12} />
-                        <span>Auto-Fix</span>
-                      </button>
-                    </div>
-
-                    {/* AI Prompt Input for Generation */}
-                    <div className="p-3 rounded-lg bg-[#0F172A] border border-[#334155] flex flex-col gap-2">
-                      <span className="font-semibold text-white flex items-center gap-1">
-                        <MessageSquareCode size={13} className="text-[#F97316]" />
-                        <span>AI Code Writer</span>
-                      </span>
-                      <div className="flex gap-2">
-                        <input
-                          type="text"
-                          value={aiPrompt}
-                          onChange={(e) => setAiPrompt(e.target.value)}
-                          placeholder="e.g. Write a quicksort function in MiniCPP"
-                          className="flex-1 bg-[#1E293B] border border-[#334155] px-2.5 py-1.5 text-xs text-white rounded outline-none focus:border-[#F97316]"
-                        />
+                {activeTab === 'ai' && (
+                  <div className="flex-1 flex flex-col min-h-0 gap-3 overflow-y-auto">
+                    {userProfile?.isGuest ? (
+                      <div className="p-5 rounded-2xl bg-[#0F172A] border border-[#334155] flex flex-col gap-4 text-center">
+                        <div className="w-12 h-12 rounded-full bg-[#F97316]/10 text-[#F97316] flex items-center justify-center mx-auto">
+                          <Lock size={22} />
+                        </div>
+                        <div>
+                          <h4 className="font-bold text-white text-sm">Groq AI Suite is Exclusive to Signed-In Users</h4>
+                          <p className="text-xs text-[#94A3B8] mt-1.5 leading-relaxed">
+                            Sign in with Google to get instant AI Code Summaries, AI Error Auto-Fix, Code Generation, and MongoDB Atlas cloud synchronization!
+                          </p>
+                        </div>
                         <button
-                          onClick={handleAiGenerateCode}
-                          disabled={aiLoading}
-                          className="px-3 py-1.5 bg-[#F97316] hover:bg-[#EA580C] text-white font-bold text-xs rounded shrink-0 transition-colors"
+                          onClick={handleGoogleSignIn}
+                          className="py-2.5 px-4 bg-white hover:bg-gray-100 text-gray-900 font-bold text-xs rounded-xl flex items-center justify-center gap-2 transition-all shadow-md mx-auto"
                         >
-                          Generate
+                          <svg className="w-4 h-4" viewBox="0 0 24 24">
+                            <path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.17z"/>
+                            <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.29v3.15C3.26 21.3 7.31 24 12 24z"/>
+                            <path fill="#FBBC05" d="M5.28 14.26c-.25-.72-.38-1.49-.38-2.26s.13-1.54.38-2.26V6.59H1.29C.47 8.23 0 10.06 0 12s.47 3.77 1.29 5.41l3.99-3.15z"/>
+                            <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.31 0 3.26 2.7 1.29 6.59l3.99 3.15c.95-2.83 3.6-4.99 6.72-4.99z"/>
+                          </svg>
+                          <span>Sign In with Google</span>
                         </button>
                       </div>
-                    </div>
-
-                    {/* Auto-Fix Apply Banner */}
-                    {aiFixableCode && (
-                      <button
-                        onClick={handleApplyAutoFixToEditor}
-                        className="py-2 px-3 bg-[#22C55E] hover:bg-[#16A34A] text-white font-bold text-xs rounded-lg flex items-center justify-center gap-2 transition-all shadow-md"
-                      >
-                        <CheckCircle2 size={14} />
-                        <span>Apply Auto-Fix to Monaco Editor</span>
-                      </button>
-                    )}
-
-                    {/* Output Response Box */}
-                    <div className="flex-1 rounded border border-[#334155] bg-[#0F172A] p-3 font-mono text-xs overflow-y-auto leading-relaxed whitespace-pre-wrap text-[#F8FAFC]">
-                      {aiLoading && (
-                        <div className="flex items-center gap-2 text-[#F97316]">
-                          <Cpu size={14} className="animate-spin" />
-                          <span>Groq Llama-3 AI is processing...</span>
+                    ) : (
+                      <div className="flex-1 flex flex-col gap-3 font-sans text-xs">
+                        <div className="grid grid-cols-3 gap-1.5 p-1 bg-[#0F172A] border border-[#334155] rounded-lg">
+                          <button
+                            onClick={handleAiSummary}
+                            className={`py-1.5 px-2 font-bold text-[11px] rounded transition-colors flex items-center justify-center gap-1 ${
+                              aiSubTab === 'summary' ? 'bg-[#F97316] text-white' : 'text-[#94A3B8] hover:text-white'
+                            }`}
+                          >
+                            <FileSearch size={12} />
+                            <span>Summary</span>
+                          </button>
+                          <button
+                            onClick={handleAiExplainCode}
+                            className={`py-1.5 px-2 font-bold text-[11px] rounded transition-colors flex items-center justify-center gap-1 ${
+                              aiSubTab === 'explain' ? 'bg-[#F97316] text-white' : 'text-[#94A3B8] hover:text-white'
+                            }`}
+                          >
+                            <Wand2 size={12} />
+                            <span>Explain</span>
+                          </button>
+                          <button
+                            onClick={handleAiAutoFix}
+                            className={`py-1.5 px-2 font-bold text-[11px] rounded transition-colors flex items-center justify-center gap-1 ${
+                              aiSubTab === 'autofix' ? 'bg-[#F97316] text-white' : 'text-[#94A3B8] hover:text-white'
+                            }`}
+                          >
+                            <Wrench size={12} />
+                            <span>Auto-Fix</span>
+                          </button>
                         </div>
-                      )}
-                      {!aiLoading && !aiResultText && (
-                        <span className="text-[#94A3B8] italic">Select an AI action above (Summary, Explain, Auto-Fix, or Code Writer) to view output.</span>
-                      )}
-                      {!aiLoading && aiResultText && (
-                        <div>{aiResultText}</div>
-                      )}
+
+                        <div className="p-3 rounded-lg bg-[#0F172A] border border-[#334155] flex flex-col gap-2">
+                          <span className="font-semibold text-white flex items-center gap-1">
+                            <MessageSquareCode size={13} className="text-[#F97316]" />
+                            <span>AI Code Writer</span>
+                          </span>
+                          <div className="flex gap-2">
+                            <input
+                              type="text"
+                              value={aiPrompt}
+                              onChange={(e) => setAiPrompt(e.target.value)}
+                              placeholder="e.g. Write a quicksort function in MiniCPP"
+                              className="flex-1 bg-[#1E293B] border border-[#334155] px-2.5 py-1.5 text-xs text-white rounded outline-none focus:border-[#F97316]"
+                            />
+                            <button
+                              onClick={handleAiGenerateCode}
+                              disabled={aiLoading}
+                              className="px-3 py-1.5 bg-[#F97316] hover:bg-[#EA580C] text-white font-bold text-xs rounded shrink-0 transition-colors"
+                            >
+                              Generate
+                            </button>
+                          </div>
+                        </div>
+
+                        {aiFixableCode && (
+                          <button
+                            onClick={handleApplyAutoFixToEditor}
+                            className="py-2 px-3 bg-[#22C55E] hover:bg-[#16A34A] text-white font-bold text-xs rounded-lg flex items-center justify-center gap-2 transition-all shadow-md w-full"
+                          >
+                            <CheckCircle2 size={14} />
+                            <span>Apply Auto-Fix to Monaco Editor</span>
+                          </button>
+                        )}
+
+                        <div className="flex-1 rounded border border-[#334155] bg-[#0F172A] p-3 font-mono text-xs overflow-y-auto leading-relaxed whitespace-pre-wrap text-[#F8FAFC]">
+                          {aiLoading && (
+                            <div className="flex items-center gap-2 text-[#F97316]">
+                              <Cpu size={14} className="animate-spin" />
+                              <span>Groq Llama-3 AI is processing...</span>
+                            </div>
+                          )}
+                          {!aiLoading && !aiResultText && (
+                            <span className="text-[#94A3B8] italic">Select an AI action above to view output.</span>
+                          )}
+                          {!aiLoading && aiResultText && (
+                            <div>{aiResultText}</div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {activeTab === 'about' && (
+                  <div className="flex-1 overflow-y-auto leading-relaxed text-xs">
+                    <div className="flex flex-col gap-4 text-[#94A3B8]">
+                      <div className="p-3 bg-[#0F172A] border border-[#334155] rounded-lg">
+                        <h4 className="font-bold text-[#F97316] mb-1">CodeForge Desktop Sandbox</h4>
+                        <p className="leading-normal">
+                          Compiles and executes code inside containerized environments or sandbox local environments securely. Maximum execution limit is 5 seconds.
+                        </p>
+                      </div>
+
+                      <div>
+                        <h5 className="font-semibold text-white mb-1.5">Languages & Compilers:</h5>
+                        <ul className="flex flex-col gap-1 list-disc pl-4">
+                          <li><strong>MiniCPP</strong>: Compiles via your handwritten <code>mcpc</code> compiler binary.</li>
+                          <li><strong>C/C++</strong>: Compiles using <code>gcc</code>/<code>g++</code> with standard flags.</li>
+                          <li><strong>Rust</strong>: Compiles with <code>rustc</code>.</li>
+                          <li><strong>Python</strong>: Interpreted via Python 3 environment.</li>
+                        </ul>
+                      </div>
                     </div>
                   </div>
                 )}
               </div>
-            )}
-
-            {activeTab === 'about' && (
-              <div className="flex-1 overflow-y-auto leading-relaxed text-xs">
-                <div className="flex flex-col gap-4 text-[#94A3B8]">
-                  <div className="p-3 bg-[#0F172A] border border-[#334155] rounded-lg">
-                    <h4 className="font-bold text-[#F97316] mb-1">CodeForge Desktop Sandbox</h4>
-                    <p className="leading-normal">
-                      Compiles and executes code inside containerized environments or sandbox local environments securely. Maximum execution limit is 5 seconds.
-                    </p>
-                  </div>
-
-                  <div>
-                    <h5 className="font-semibold text-white mb-1.5">Languages & Compilers:</h5>
-                    <ul className="flex flex-col gap-1 list-disc pl-4">
-                      <li><strong>MiniCPP</strong>: Compiles via your handwritten <code>mcpc</code> compiler binary.</li>
-                      <li><strong>C/C++</strong>: Compiles using <code>gcc</code>/<code>g++</code> with standard flags.</li>
-                      <li><strong>Rust</strong>: Compiles with <code>rustc</code>.</li>
-                      <li><strong>Python</strong>: Interpreted via Python 3 environment.</li>
-                    </ul>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
+            </div>
+          )}
         </section>
+
 
       </main>
 
@@ -1882,7 +1914,14 @@ export default function Home() {
       {/* VS Code Status Bar */}
       <footer className="h-6 bg-[#F97316] text-white flex items-center justify-between px-3 text-[11px] font-mono select-none shrink-0 z-10">
         <div className="flex items-center gap-3">
-          <span className="bg-[#EA580C] px-1.5 py-0.5 rounded font-bold">READY</span>
+          <span className="bg-[#EA580C] px-1.5 py-0.5 rounded font-bold text-white shrink-0">READY</span>
+          <button
+            onClick={() => setShowBottomPanel(prev => !prev)}
+            className="flex items-center gap-1 bg-[#EA580C] hover:brightness-110 px-2 py-0.5 rounded font-bold text-white transition-all cursor-pointer shrink-0"
+          >
+            <TerminalIcon size={11} />
+            <span>{showBottomPanel ? 'Hide Console' : 'Show Console'}</span>
+          </button>
           <span>Target: x86-64 Windows</span>
           <span className="opacity-80">|</span>
           <span>Compiler: mcpc 1.0</span>
