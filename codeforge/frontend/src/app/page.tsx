@@ -692,8 +692,8 @@ export default function Home() {
 
   const [consoleInputLine, setConsoleInputLine] = useState<string>('');
 
-  const handleRun = async (overrideStdin?: string) => {
-    const inputToUse = overrideStdin !== undefined ? overrideStdin : stdin;
+  const handleRun = async (overrideStdin?: string | React.MouseEvent | any) => {
+    const inputToUse = typeof overrideStdin === 'string' ? overrideStdin : stdin;
     setIsRunning(true);
     setStdout('');
     setStderr('');
@@ -709,7 +709,7 @@ export default function Home() {
         body: JSON.stringify({
           language,
           code: currentCode,
-          stdin: inputToUse
+          stdin: typeof inputToUse === 'string' ? inputToUse : ''
         })
       });
       const data = await res.json();
