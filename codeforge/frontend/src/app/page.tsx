@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import MonacoEditor from '@monaco-editor/react';
 import { 
   Play, 
@@ -45,12 +45,13 @@ import {
   Send
 } from 'lucide-react';
 import dynamic from 'next/dynamic';
+import type { Socket } from 'socket.io-client';
 
 const XTermTerminal = dynamic(() => import('./components/XTermTerminal'), {
   ssr: false,
   loading: () => (
     <div className="flex-1 bg-[#0F172A] border border-[#334155] rounded-lg p-4 font-mono text-xs text-[#94A3B8] flex items-center justify-center">
-      <span>Initializing Interactive XTerm.js Terminal...</span>
+      <span>Initializing Interactive Terminal...</span>
     </div>
   )
 });
@@ -259,6 +260,10 @@ export default function Home() {
   const [compileTime, setCompileTime] = useState<number | null>(null);
   const [executionTime, setExecutionTime] = useState<number | null>(null);
   const [exitCode, setExitCode] = useState<number | null>(null);
+
+  // Socket.IO — Persistent Interactive Terminal
+  const [socket, setSocket] = useState<Socket | null>(null);
+  const socketRef = useRef<Socket | null>(null);
 
   // Groq AI Suite State
   const [aiPrompt, setAiPrompt] = useState<string>('');
@@ -692,8 +697,24 @@ export default function Home() {
 
   const [consoleInputLine, setConsoleInputLine] = useState<string>('');
 
-  const handleRun = async (overrideStdin?: string | React.MouseEvent | any) => {
-    const inputToUse = typeof overrideStdin === 'string' ? overrideStdin : stdin;
+  // Initialize Socket.IO connection once on mount
+  useEffect(() => {
+    let sock: Socket;
+    const initSocket = async () => {
+      const { io } = await import('socket.io-client');
+      sock = io(BACKEND_URL, { transports: ['websocket', 'polling'] });
+      sock.on('connect', () => console.log('[Socket.IO] Connected:', sock.id));
+      sock.on('disconnect', () => console.log('[Socket.IO] Disconnected'));
+      socketRef.current = sock;
+      setSocket(sock);
+    };
+    initSocket();
+    return () => {
+      sock?.disconnect();
+    };
+  }, []);
+
+  const handleRun = useCallback(async (overrideStdin?: string | React.MouseEvent | any) => {
     setIsRunning(true);
     setStdout('');
     setStderr('');
@@ -702,6 +723,15 @@ export default function Home() {
     setExitCode(null);
     setActiveTab('console');
 
+    // ── XTerm Mode: use Socket.IO — emit "compile" and keep process alive ──
+    if (terminalEngine === 'xterm' && socketRef.current?.connected) {
+      socketRef.current.emit('compile', { language, code: currentCode });
+      // isRunning will be set to false via terminal-exit event (see XTermTerminal onExited)
+      return;
+    }
+
+    // ── Standard Console Mode: HTTP batch run ──
+    const inputToUse = typeof overrideStdin === 'string' ? overrideStdin : stdin;
     try {
       const res = await fetch(`${BACKEND_URL}/api/run`, {
         method: 'POST',
@@ -713,7 +743,6 @@ export default function Home() {
         })
       });
       const data = await res.json();
-      
       if (data.success || data.exitCode !== undefined) {
         setStdout(data.stdout || '');
         setStderr(data.stderr || '');
@@ -728,7 +757,7 @@ export default function Home() {
     } finally {
       setIsRunning(false);
     }
-  };
+  }, [language, currentCode, stdin, terminalEngine]);
 
   const handleSidebarClick = (panel: 'explorer' | 'templates' | 'metrics' | 'settings') => {
     if (activeSidebar === panel && sidebarExpanded) {
@@ -1563,62 +1592,25 @@ export default function Home() {
                 {terminalEngine === 'xterm' ? (
                   <div className="flex-1 flex flex-col min-h-0 gap-2">
                     <XTermTerminal
-                      stdout={stdout}
-                      stderr={stderr}
+                      socket={socket}
                       isRunning={isRunning}
-                      onSendInput={(typedLine) => {
-                        const nextInput = stdin ? `${stdin}\n${typedLine}` : typedLine;
-                        setStdin(nextInput);
-                        handleRun(nextInput);
-                      }}
-                      onClear={() => {
-                        setStdout('');
-                        setStderr('');
-                      }}
+                      onExited={() => setIsRunning(false)}
+                      cursorBlink={terminalCursorBlink}
+                      fontSize={terminalFontSize}
                     />
-                    {/* Quick Input Bar below XTerm for mouse users */}
-                    <form
-                      onSubmit={(e) => {
-                        e.preventDefault();
-                        if (!consoleInputLine) return;
-                        const nextInput = stdin ? `${stdin}\n${consoleInputLine}` : consoleInputLine;
-                        setStdin(nextInput);
-                        setConsoleInputLine('');
-                        handleRun(nextInput);
-                      }}
-                      className="flex items-center gap-2 bg-[#0F172A] border border-[#334155] focus-within:border-[#F97316] rounded-lg p-1.5 shrink-0"
-                    >
-                      <span className="text-[#F97316] font-mono font-bold text-xs pl-2">&gt;</span>
-                      <input
-                        type="text"
-                        value={consoleInputLine}
-                        onChange={(e) => setConsoleInputLine(e.target.value)}
-                        placeholder="Type stdin on the spot (e.g. Charan, 85, 90) & press Enter..."
-                        className="flex-1 bg-transparent text-xs font-mono text-white outline-none placeholder-[#64748B]"
-                      />
+                    {/* Kill Process button — visible while process is running */}
+                    {isRunning && (
                       <button
-                        type="submit"
-                        disabled={isRunning}
-                        className="py-1 px-3 bg-[#F97316] hover:bg-[#EA580C] disabled:opacity-50 text-white text-xs font-bold rounded flex items-center gap-1 transition-all"
+                        onClick={() => {
+                          socket?.emit('terminal-kill');
+                          setIsRunning(false);
+                        }}
+                        className="shrink-0 py-1 px-3 bg-red-700 hover:bg-red-600 text-white text-xs font-bold rounded flex items-center gap-1.5 transition-all"
                       >
-                        <Send size={11} />
-                        <span>Send Input</span>
+                        <X size={11} />
+                        <span>Kill Process</span>
                       </button>
-                      {stdin && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setStdin('');
-                            setConsoleInputLine('');
-                            handleRun('');
-                          }}
-                          title="Clear Inputs"
-                          className="py-1 px-2.5 bg-[#334155] hover:bg-[#475569] text-white text-xs rounded transition-all"
-                        >
-                          Clear
-                        </button>
-                      )}
-                    </form>
+                    )}
                   </div>
                 ) : (
                   <div className="flex-1 flex flex-col min-h-0">

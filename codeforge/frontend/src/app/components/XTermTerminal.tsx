@@ -1,30 +1,32 @@
 "use client";
 
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useCallback } from 'react';
+import type { Socket } from 'socket.io-client';
 
 interface XTermTerminalProps {
-  stdout: string;
-  stderr: string;
+  socket: Socket | null;
   isRunning: boolean;
-  onSendInput: (input: string) => void;
-  onClear: () => void;
+  onExited: () => void;
+  cursorBlink?: boolean;
+  fontSize?: number;
 }
 
 export default function XTermTerminal({
-  stdout,
-  stderr,
+  socket,
   isRunning,
-  onSendInput,
-  onClear
+  onExited,
+  cursorBlink = true,
+  fontSize = 13
 }: XTermTerminalProps) {
   const terminalRef = useRef<HTMLDivElement>(null);
   const termInstanceRef = useRef<any>(null);
   const fitAddonRef = useRef<any>(null);
-  const inputBufferRef = useRef<string>('');
 
+  // Initialize XTerm.js terminal once
   useEffect(() => {
     let term: any;
     let fitAddon: any;
+    let cleanupFn: (() => void) | undefined;
 
     const initTerminal = async () => {
       try {
@@ -36,16 +38,32 @@ export default function XTermTerminal({
         terminalRef.current.innerHTML = '';
 
         term = new Terminal({
-          cursorBlink: true,
+          cursorBlink,
           fontFamily: 'Consolas, Monaco, "Courier New", monospace',
-          fontSize: 13,
+          fontSize,
           theme: {
             background: '#0F172A',
             foreground: '#F8FAFC',
             cursor: '#F97316',
-            selectionBackground: '#334155'
-          },
-          rows: 14
+            cursorAccent: '#0F172A',
+            selectionBackground: '#334155',
+            black: '#1E293B',
+            red: '#F87171',
+            green: '#4ADE80',
+            yellow: '#FBBF24',
+            blue: '#60A5FA',
+            magenta: '#C084FC',
+            cyan: '#22D3EE',
+            white: '#F1F5F9',
+            brightBlack: '#475569',
+            brightRed: '#FCA5A5',
+            brightGreen: '#86EFAC',
+            brightYellow: '#FDE68A',
+            brightBlue: '#93C5FD',
+            brightMagenta: '#D8B4FE',
+            brightCyan: '#67E8F9',
+            brightWhite: '#FFFFFF'
+          }
         });
 
         fitAddon = new FitAddon();
@@ -56,41 +74,27 @@ export default function XTermTerminal({
         termInstanceRef.current = term;
         fitAddonRef.current = fitAddon;
 
-        // Welcome banner in XTerm
-        term.writeln('\x1b[1;36mCodeForge Interactive Terminal v1.0.0\x1b[0m');
-        term.writeln('\x1b[90mPowered by XTerm.js — Real-Time Stdin/Stdout Stream\x1b[0m');
+        // Welcome banner
+        term.writeln('\x1b[1;36mCodeForge Interactive Terminal v2.0\x1b[0m');
+        term.writeln('\x1b[90mPowered by XTerm.js + Socket.IO — Real stdin/stdout streaming\x1b[0m');
         term.writeln('');
 
-        // Handle Keystroke Inputs directly in Terminal
+        // Handle Keystroke Inputs → send to running process via socket
         term.onData((data: string) => {
-          if (data === '\r') {
-            // Enter pressed
-            const line = inputBufferRef.current;
-            inputBufferRef.current = '';
-            term.write('\r\n');
-            if (line.trim()) {
-              onSendInput(line);
-            }
-          } else if (data === '\x7f') {
-            // Backspace
-            if (inputBufferRef.current.length > 0) {
-              inputBufferRef.current = inputBufferRef.current.slice(0, -1);
-              term.write('\b \b');
-            }
-          } else {
-            inputBufferRef.current += data;
-            term.write(data);
+          if (socket && socket.connected) {
+            socket.emit('terminal-input', data);
           }
+          // Echo printable characters locally for responsiveness
+          // (the process will also echo via stdout on most terminals,
+          //  but for raw mode this ensures immediate feedback)
         });
 
         const handleResize = () => {
-          try {
-            fitAddon.fit();
-          } catch (e) {}
+          try { fitAddon.fit(); } catch (e) {}
         };
         window.addEventListener('resize', handleResize);
 
-        return () => {
+        cleanupFn = () => {
           window.removeEventListener('resize', handleResize);
         };
       } catch (err) {
@@ -101,40 +105,79 @@ export default function XTermTerminal({
     initTerminal();
 
     return () => {
+      cleanupFn?.();
       if (termInstanceRef.current) {
         termInstanceRef.current.dispose();
+        termInstanceRef.current = null;
       }
     };
-  }, []);
+  }, []); // Only runs once on mount
 
-  // Update terminal when stdout or stderr changes
+  // When cursorBlink or fontSize changes, update options on existing terminal
   useEffect(() => {
     const term = termInstanceRef.current;
     if (!term) return;
+    term.options.cursorBlink = cursorBlink;
+    term.options.fontSize = fontSize;
+    try { fitAddonRef.current?.fit(); } catch (_) {}
+  }, [cursorBlink, fontSize]);
 
-    term.clear();
-    term.writeln('\x1b[1;36mCodeForge Interactive Terminal v1.0.0\x1b[0m');
-    term.writeln('\x1b[90mPowered by XTerm.js — Real-Time Stdin/Stdout Stream\x1b[0m');
-    term.writeln('');
+  // Handle socket events: terminal-output and terminal-exit
+  useEffect(() => {
+    if (!socket) return;
 
+    const handleOutput = (data: string) => {
+      const term = termInstanceRef.current;
+      if (term) term.write(data);
+    };
+
+    const handleExit = ({ code }: { code: number }) => {
+      onExited();
+    };
+
+    socket.on('terminal-output', handleOutput);
+    socket.on('terminal-exit', handleExit);
+
+    return () => {
+      socket.off('terminal-output', handleOutput);
+      socket.off('terminal-exit', handleExit);
+    };
+  }, [socket, onExited]);
+
+  // Clear terminal when isRunning becomes true (new compilation started)
+  useEffect(() => {
     if (isRunning) {
-      term.writeln('\x1b[33m⚡ Compiling & executing process...\x1b[0m');
+      const term = termInstanceRef.current;
+      if (term) {
+        term.clear();
+        term.writeln('\x1b[1;36mCodeForge Interactive Terminal v2.0\x1b[0m');
+        term.writeln('\x1b[90mPowered by XTerm.js + Socket.IO — Real stdin/stdout streaming\x1b[0m');
+        term.writeln('');
+      }
     }
+  }, [isRunning]);
 
-    if (stderr) {
-      const formattedErr = stderr.replace(/\n/g, '\r\n');
-      term.writeln(`\x1b[31m${formattedErr}\x1b[0m`);
+  // Expose a clear function via a stable ref for the parent (optional)
+  const clearTerminal = useCallback(() => {
+    const term = termInstanceRef.current;
+    if (term) {
+      term.clear();
+      term.writeln('\x1b[1;36mCodeForge Interactive Terminal v2.0\x1b[0m');
+      term.writeln('\x1b[90mPowered by XTerm.js + Socket.IO — Real stdin/stdout streaming\x1b[0m');
+      term.writeln('');
     }
+  }, []);
 
-    if (stdout) {
-      const formattedOut = stdout.replace(/\n/g, '\r\n');
-      term.write(formattedOut);
+  // Expose clearTerminal via DOM ref for parent to call
+  useEffect(() => {
+    if (terminalRef.current) {
+      (terminalRef.current as any).__clearTerminal = clearTerminal;
     }
-  }, [stdout, stderr, isRunning]);
+  }, [clearTerminal]);
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 bg-[#0F172A] border border-[#334155] rounded-lg overflow-hidden p-2">
-      <div ref={terminalRef} className="flex-1 min-h-0 w-full" />
+    <div className="flex-1 flex flex-col min-h-0 bg-[#0F172A] border border-[#1E3A5F] rounded-lg overflow-hidden">
+      <div ref={terminalRef} className="flex-1 min-h-0 w-full p-1" />
     </div>
   );
 }

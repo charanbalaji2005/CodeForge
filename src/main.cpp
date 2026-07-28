@@ -1,6 +1,4 @@
-// main.cpp - mcpc compiler driver: source -> tokens -> AST -> sema -> asm ->
-// object file (via `as`) -> executable (via `ld`, statically linked against
-// only our own runtime, no libc).
+
 #include "mcpc/lexer.hpp"
 #include "mcpc/parser.hpp"
 #include "mcpc/sema.hpp"

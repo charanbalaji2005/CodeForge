@@ -2,7 +2,10 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import dns from 'dns';
-import { runCode, LANGUAGE_CONFIGS } from './runner';
+import http from 'http';
+import { Server as SocketIOServer } from 'socket.io';
+import { ChildProcessWithoutNullStreams } from 'child_process';
+import { runCode, compileOnly, spawnInteractive, cleanUpSessionDir, LANGUAGE_CONFIGS } from './runner';
 import { OAuth2Client } from 'google-auth-library';
 
 // Force Node.js to use IPv4 first for all DNS resolution
@@ -15,7 +18,7 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-app.use(cors());
+app.use(cors({ origin: '*' }));
 app.use(express.json());
 
 // Credentials & Connections loaded from .env
@@ -44,7 +47,7 @@ async function initMongoDB() {
       console.log("✅ MongoDB Atlas Connected Successfully via SRV!");
     } catch (srvErr: any) {
       console.log("[MongoDB Atlas] SRV DNS query blocked by local network. Connecting via Direct Seed List...");
-      // Attempt 2: Direct Replica Set Seed List Connection using exact resolved shard hostnames
+      // Attempt 2: Direct Replica Set Seed List Connection
       await mongoose.connect(DIRECT_MONGODB_URI, {
         serverSelectionTimeoutMS: 5000,
         connectTimeoutMS: 5000,
@@ -54,28 +57,12 @@ async function initMongoDB() {
     }
 
     const UserSchema = new mongoose.Schema({
-      googleId: {
-        type: String,
-        required: true,
-        unique: true
-      },
-      email: {
-        type: String,
-        required: true
-      },
-      name: {
-        type: String,
-        required: true
-      },
+      googleId: { type: String, required: true, unique: true },
+      email: { type: String, required: true },
+      name: { type: String, required: true },
       avatar: String,
-      createdAt: {
-        type: Date,
-        default: Date.now
-      },
-      lastLogin: {
-        type: Date,
-        default: Date.now
-      }
+      createdAt: { type: Date, default: Date.now },
+      lastLogin: { type: Date, default: Date.now }
     });
 
     UserModel = mongoose.models.User || mongoose.model("User", UserSchema);
@@ -86,7 +73,7 @@ async function initMongoDB() {
 
 initMongoDB();
 
-// Helper: Verify Google OAuth 2.0 Token using official Google Auth Library
+// Helper: Verify Google OAuth 2.0 Token
 async function verifyGoogleIdToken(token: string) {
   try {
     const ticket = await googleAuthClient.verifyIdToken({
@@ -113,7 +100,7 @@ function parseGoogleJwt(token: string) {
   }
 }
 
-// In-Memory fallback store for user profiles if DB connection is initializing or offline
+// In-Memory fallback store for user profiles
 const localUserStore = new Map<string, any>();
 
 // Endpoint: Authenticate & Store Google Signup in MongoDB
@@ -121,7 +108,6 @@ app.post('/api/auth/google', async (req, res) => {
   try {
     let { googleId, email, name, avatar, credential } = req.body;
 
-    // Verify Real Google Identity Services JWT token if provided
     if (credential) {
       const decoded = await verifyGoogleIdToken(credential);
       if (decoded) {
@@ -153,12 +139,12 @@ app.post('/api/auth/google', async (req, res) => {
     res.json({ success: true, user: userObj });
   } catch (err: any) {
     console.error('[MongoDB Auth Note]', err.message);
-    const fallbackUser = { 
-      googleId: req.body.googleId || 'google_user_' + Date.now(), 
-      email: req.body.email || 'user@gmail.com', 
-      name: req.body.name || 'Google User', 
-      avatar: req.body.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=120&q=80', 
-      lastLogin: new Date() 
+    const fallbackUser = {
+      googleId: req.body.googleId || 'google_user_' + Date.now(),
+      email: req.body.email || 'user@gmail.com',
+      name: req.body.name || 'Google User',
+      avatar: req.body.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=120&q=80',
+      lastLogin: new Date()
     };
     res.json({ success: true, user: fallbackUser });
   }
@@ -191,22 +177,11 @@ async function queryGroqAI(prompt: string, systemPrompt: string = 'You are an ex
   return data.choices?.[0]?.message?.content || 'No response generated.';
 }
 
-// Endpoint: AI Code Explanation (Exclusively for Signed-In Users)
+// Endpoint: AI Code Explanation
 app.post('/api/ai/explain', async (req, res) => {
   const { code, language, isGuest } = req.body;
-
-  if (isGuest) {
-    return res.status(403).json({
-      success: false,
-      requiresSignup: true,
-      error: '🔒 Groq AI Code Explanation is an exclusive feature for Signed-In Users! Please Sign In with Google to unlock AI features.'
-    });
-  }
-
-  if (!code) {
-    return res.status(400).json({ success: false, error: 'No code provided for AI analysis.' });
-  }
-
+  if (isGuest) return res.status(403).json({ success: false, requiresSignup: true, error: '🔒 Groq AI Code Explanation is an exclusive feature for Signed-In Users! Please Sign In with Google to unlock AI features.' });
+  if (!code) return res.status(400).json({ success: false, error: 'No code provided for AI analysis.' });
   try {
     const prompt = `Language: ${language || 'MiniCPP/C++'}\nCode:\n\`\`\`\n${code}\n\`\`\`\nProvide a clear 3-part breakdown:\n1. Detailed summary of what the code does.\n2. Line-by-line explanation.\n3. Potential bugs or performance optimization suggestions.`;
     const explanation = await queryGroqAI(prompt, 'You are an elite compiler architect and code analyzer powered by Groq Llama-3.');
@@ -216,22 +191,11 @@ app.post('/api/ai/explain', async (req, res) => {
   }
 });
 
-// Endpoint: AI Code Summary (Exclusively for Signed-In Users)
+// Endpoint: AI Code Summary
 app.post('/api/ai/summary', async (req, res) => {
   const { code, language, isGuest } = req.body;
-
-  if (isGuest) {
-    return res.status(403).json({
-      success: false,
-      requiresSignup: true,
-      error: '🔒 Groq AI Code Summary is exclusive for Signed-In Users! Please Sign In with Google.'
-    });
-  }
-
-  if (!code) {
-    return res.status(400).json({ success: false, error: 'No code provided.' });
-  }
-
+  if (isGuest) return res.status(403).json({ success: false, requiresSignup: true, error: '🔒 Groq AI Code Summary is exclusive for Signed-In Users! Please Sign In with Google.' });
+  if (!code) return res.status(400).json({ success: false, error: 'No code provided.' });
   try {
     const prompt = `Language: ${language || 'MiniCPP'}\nCode:\n\`\`\`\n${code}\n\`\`\`\nProvide a concise 3-bullet summary of what this code does, its key algorithms, and expected behavior.`;
     const summary = await queryGroqAI(prompt, 'You are an AI code summarizer powered by Groq Llama-3.');
@@ -241,51 +205,27 @@ app.post('/api/ai/summary', async (req, res) => {
   }
 });
 
-// Endpoint: AI Error Correction & Auto-Fix (Exclusively for Signed-In Users)
+// Endpoint: AI Error Correction & Auto-Fix
 app.post('/api/ai/autofix', async (req, res) => {
   const { code, errorOutput, language, isGuest } = req.body;
-
-  if (isGuest) {
-    return res.status(403).json({
-      success: false,
-      requiresSignup: true,
-      error: '🔒 Groq AI Error Correction is exclusive for Signed-In Users! Please Sign In with Google.'
-    });
-  }
-
-  if (!code || !errorOutput) {
-    return res.status(400).json({ success: false, error: 'Code and Error Output are required for Auto-Fix.' });
-  }
-
+  if (isGuest) return res.status(403).json({ success: false, requiresSignup: true, error: '🔒 Groq AI Error Correction is exclusive for Signed-In Users! Please Sign In with Google.' });
+  if (!code || !errorOutput) return res.status(400).json({ success: false, error: 'Code and Error Output are required for Auto-Fix.' });
   try {
     const prompt = `Language: ${language || 'MiniCPP'}\nOriginal Code:\n\`\`\`\n${code}\n\`\`\`\nCompiler/Runtime Error Output:\n\`\`\`\n${errorOutput}\n\`\`\`\nTask:\n1. Explain the root cause of the error.\n2. Provide the complete FIXED code inside \`\`\`${language || 'cpp'} code block.`;
     const aiResponse = await queryGroqAI(prompt, 'You are an expert compiler debugger and auto-fix engineer powered by Groq Llama-3.');
-    
     const match = aiResponse.match(/```(?:[a-z]*)\n([\s\S]*?)\n```/i);
     const fixedCode = match ? match[1].trim() : null;
-
     res.json({ success: true, explanation: aiResponse, fixedCode });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
-// Endpoint: AI Code Writer / Generator (Exclusively for Signed-In Users)
+// Endpoint: AI Code Writer / Generator
 app.post('/api/ai/generate', async (req, res) => {
   const { userPrompt, language, isGuest } = req.body;
-
-  if (isGuest) {
-    return res.status(403).json({
-      success: false,
-      requiresSignup: true,
-      error: '🔒 Groq AI Code Generation is an exclusive feature for Signed-In Users! Please Sign In with Google to unlock AI code generation.'
-    });
-  }
-
-  if (!userPrompt) {
-    return res.status(400).json({ success: false, error: 'No prompt provided.' });
-  }
-
+  if (isGuest) return res.status(403).json({ success: false, requiresSignup: true, error: '🔒 Groq AI Code Generation is an exclusive feature for Signed-In Users! Please Sign In with Google to unlock AI code generation.' });
+  if (!userPrompt) return res.status(400).json({ success: false, error: 'No prompt provided.' });
   try {
     const prompt = `Write a complete, high-performance working ${language || 'MiniCPP'} program for:\n"${userPrompt}"\nInclude proper imports, main function, and comments. Return only executable code inside markdown code blocks.`;
     const generatedCode = await queryGroqAI(prompt, 'You are an expert AI code generator producing clean, error-free production code.');
@@ -295,17 +235,12 @@ app.post('/api/ai/generate', async (req, res) => {
   }
 });
 
-// Endpoint: Compile and run code
+// Endpoint: Compile and run code (Standard Console / HTTP batch mode)
 app.post('/api/run', async (req, res) => {
   const { language, code, stdin } = req.body;
-  
   if (!language || !code) {
-    return res.status(400).json({
-      success: false,
-      error: 'Missing required parameters: language and code are required.'
-    });
+    return res.status(400).json({ success: false, error: 'Missing required parameters: language and code are required.' });
   }
-
   try {
     console.log(`[CodeForge API] Running ${language.toUpperCase()} script...`);
     const result = await runCode(language, code, stdin);
@@ -313,10 +248,7 @@ app.post('/api/run', async (req, res) => {
     res.json(result);
   } catch (err: any) {
     console.error(`[CodeForge API] Error executing runner:`, err.message);
-    res.status(500).json({
-      success: false,
-      error: err.message || 'Internal server error during execution.'
-    });
+    res.status(500).json({ success: false, error: err.message || 'Internal server error during execution.' });
   }
 });
 
@@ -330,18 +262,15 @@ app.get('/api/languages', (req, res) => {
   res.json({ success: true, languages: list });
 });
 
-// Endpoint: Auto-Detect OS & Serve Real Built Desktop App Installer (.exe / .msi)
+// Endpoint: Auto-Detect OS & Serve Desktop App Installer
 app.get('/download', (req, res) => {
   const ua = req.headers['user-agent'] || '';
   const fs = require('fs');
   const path = require('path');
-
   console.log(`[CodeForge Download] Request received from User-Agent: ${ua}`);
-
   const projectRoot = path.join(__dirname, '..', '..', '..');
   const distDir = path.join(projectRoot, 'dist');
   const downloadsDir = path.join(__dirname, '..', 'downloads');
-
   const candidates = [
     path.join(distDir, 'CodeForge Desktop Compiler Setup 1.0.0.exe'),
     path.join(distDir, 'CodeForge_Setup.exe'),
@@ -349,35 +278,155 @@ app.get('/download', (req, res) => {
     path.join(downloadsDir, 'CodeForge_Setup.msi'),
     path.join(downloadsDir, 'CodeForge_Setup.exe')
   ];
-
   for (const file of candidates) {
     if (fs.existsSync(file)) {
       console.log(`[CodeForge Download] Serving genuine installer binary: ${file}`);
-      const filename = path.basename(file);
-      return res.download(file, filename);
+      return res.download(file, path.basename(file));
     }
   }
-
-  const launcherScript = `@echo off
-echo =========================================================
-echo   CodeForge MCPC Desktop Compiler Launcher (Windows x64)
-echo =========================================================
-echo Launching CodeForge Desktop IDE...
-cd %~dp0
-npx -y electron@latest .
-pause
-`;
-  
+  const launcherScript = `@echo off\r\necho CodeForge MCPC Desktop Compiler Launcher\r\ncd %~dp0\r\nnpx -y electron@latest .\r\npause\r\n`;
   res.setHeader('Content-Type', 'application/x-bat');
   res.setHeader('Content-Disposition', 'attachment; filename="CodeForge_Launcher.bat"');
-  res.send(Buffer.from(installerScript));
+  res.send(Buffer.from(launcherScript));
 });
 
-const server = app.listen(PORT, () => {
+// ============================================================
+// HTTP Server + Socket.IO — Persistent Interactive Terminal
+// ============================================================
+const httpServer = http.createServer(app);
+
+const io = new SocketIOServer(httpServer, {
+  cors: {
+    origin: '*',
+    methods: ['GET', 'POST']
+  }
+});
+
+// Track one running process per socket connection
+const runningProcesses = new Map<string, {
+  process: ChildProcessWithoutNullStreams;
+  sessionDir: string;
+}>();
+
+io.on('connection', (socket) => {
+  console.log(`[Socket.IO] Client connected: ${socket.id}`);
+
+  // ── Event: "compile" ──────────────────────────────────────
+  // Compile the code and spawn the process with open stdin/stdout pipes
+  socket.on('compile', async (data: { language: string; code: string }) => {
+    const { language, code } = data;
+
+    // Kill any existing running process for this socket
+    const existing = runningProcesses.get(socket.id);
+    if (existing) {
+      try { existing.process.kill('SIGKILL'); } catch (_) {}
+      cleanUpSessionDir(existing.sessionDir);
+      runningProcesses.delete(socket.id);
+    }
+
+    socket.emit('terminal-output', `\x1b[33m⚡ Compiling ${language.toUpperCase()}...\x1b[0m\r\n`);
+
+    try {
+      // Step 1: Compile
+      const compiled = await compileOnly(language, code);
+
+      if (compiled.stderr && compiled.stderr.trim()) {
+        socket.emit('terminal-output', `\x1b[33mCompiler warnings:\x1b[0m\r\n${compiled.stderr}\r\n`);
+      }
+      socket.emit('terminal-output', `\x1b[32m✅ Compiled in ${compiled.compileTime}ms. Starting process...\x1b[0m\r\n\r\n`);
+
+      // Step 2: Spawn interactive process
+      const child = spawnInteractive(language, compiled.sessionDir, compiled.wslSessionDir);
+
+      runningProcesses.set(socket.id, {
+        process: child,
+        sessionDir: compiled.sessionDir
+      });
+
+      // Stream stdout to terminal
+      child.stdout.on('data', (chunk: Buffer) => {
+        const text = chunk.toString().replace(/\n/g, '\r\n');
+        socket.emit('terminal-output', text);
+      });
+
+      // Stream stderr to terminal  
+      child.stderr.on('data', (chunk: Buffer) => {
+        const text = chunk.toString().replace(/\n/g, '\r\n');
+        socket.emit('terminal-output', `\x1b[31m${text}\x1b[0m`);
+      });
+
+      // Process exit
+      child.on('close', (code) => {
+        runningProcesses.delete(socket.id);
+        cleanUpSessionDir(compiled.sessionDir);
+        const exitMsg = code === 0
+          ? `\r\n\x1b[32m[Process exited with code ${code}]\x1b[0m\r\n`
+          : `\r\n\x1b[31m[Process exited with code ${code}]\x1b[0m\r\n`;
+        socket.emit('terminal-output', exitMsg);
+        socket.emit('terminal-exit', { code });
+      });
+
+      child.on('error', (err) => {
+        socket.emit('terminal-output', `\r\n\x1b[31m[Process error: ${err.message}]\x1b[0m\r\n`);
+        socket.emit('terminal-exit', { code: 1 });
+        runningProcesses.delete(socket.id);
+      });
+
+      console.log(`[Socket.IO] Process spawned for socket ${socket.id} [${language}]`);
+
+    } catch (err: any) {
+      const errMsg = err.stderr || err.message || 'Compilation failed';
+      socket.emit('terminal-output', `\x1b[31m❌ Compilation Error:\x1b[0m\r\n${errMsg.replace(/\n/g, '\r\n')}\r\n`);
+      socket.emit('terminal-exit', { code: 1 });
+      console.error(`[Socket.IO] Compile error for socket ${socket.id}:`, errMsg);
+    }
+  });
+
+  // ── Event: "terminal-input" ───────────────────────────────
+  // Write user keystrokes directly to the running process's stdin
+  socket.on('terminal-input', (data: string) => {
+    const running = runningProcesses.get(socket.id);
+    if (running && running.process.stdin && !running.process.stdin.destroyed) {
+      try {
+        running.process.stdin.write(data);
+      } catch (err) {
+        console.error(`[Socket.IO] Failed to write stdin for socket ${socket.id}:`, err);
+      }
+    }
+  });
+
+  // ── Event: "terminal-kill" ────────────────────────────────
+  // Kill the running process on demand
+  socket.on('terminal-kill', () => {
+    const running = runningProcesses.get(socket.id);
+    if (running) {
+      try { running.process.kill('SIGKILL'); } catch (_) {}
+      cleanUpSessionDir(running.sessionDir);
+      runningProcesses.delete(socket.id);
+      socket.emit('terminal-output', '\r\n\x1b[31m[Process killed by user]\x1b[0m\r\n');
+      socket.emit('terminal-exit', { code: -1 });
+    }
+  });
+
+  // ── Cleanup on disconnect ─────────────────────────────────
+  socket.on('disconnect', () => {
+    console.log(`[Socket.IO] Client disconnected: ${socket.id}`);
+    const running = runningProcesses.get(socket.id);
+    if (running) {
+      try { running.process.kill('SIGKILL'); } catch (_) {}
+      cleanUpSessionDir(running.sessionDir);
+      runningProcesses.delete(socket.id);
+    }
+  });
+});
+
+// Start HTTP + WebSocket server
+httpServer.listen(PORT, () => {
   console.log(`CodeForge Backend serving at http://localhost:${PORT}`);
+  console.log(`[Socket.IO] WebSocket server ready on ws://localhost:${PORT}`);
 });
 
-server.on('error', (err: any) => {
+httpServer.on('error', (err: any) => {
   if (err.code === 'EADDRINUSE') {
     console.log(`[CodeForge Backend] Port ${PORT} is already active.`);
   } else {

@@ -1,4 +1,4 @@
-import { exec } from 'child_process';
+import { exec, spawn, ChildProcessWithoutNullStreams } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -106,6 +106,131 @@ function toWslPath(winPath: string): string {
     return normalized;
 }
 
+// ----------------------------------------------------------------
+// compileOnly(): Compile code, return {sessionDir, binaryName, wslSessionDir}
+// Used by the interactive terminal flow (Socket.IO)
+// ----------------------------------------------------------------
+export interface CompileResult {
+    sessionDir: string;
+    wslSessionDir: string;
+    binaryName: string;   // e.g. "main.exe" or "main"
+    compileTime: number;
+    stderr: string;
+}
+
+export async function compileOnly(language: string, code: string): Promise<CompileResult> {
+    const config = LANGUAGE_CONFIGS[language.toLowerCase()];
+    if (!config) throw new Error(`Unsupported language: ${language}`);
+
+    const sessionId = generateSessionId();
+    const sessionDir = path.join(TEMP_DIR, sessionId);
+
+    if (!fs.existsSync(TEMP_DIR)) fs.mkdirSync(TEMP_DIR, { recursive: true });
+    fs.mkdirSync(sessionDir, { recursive: true });
+
+    const sourcePath = path.join(sessionDir, config.fileName);
+    fs.writeFileSync(sourcePath, code, 'utf8');
+
+    const wslSessionDir = toWslPath(sessionDir);
+    const isWindows = process.platform === 'win32';
+    let compileTime = 0;
+    let compiledStderr = '';
+
+    // Languages without a compile step (Python, JS, Go interpreted)
+    if (!config.compileCmd && !config.winCompileCmd) {
+        return { sessionDir, wslSessionDir, binaryName: config.winRunCmd || config.runCmd, compileTime: 0, stderr: '' };
+    }
+
+    const compileStart = process.hrtime();
+
+    await new Promise<void>((resolve, reject) => {
+        if (config.useWslFirst) {
+            const wslCompileCmd = `wsl sh -c "cd '${wslSessionDir}' && ${config.compileCmd}"`;
+            exec(wslCompileCmd, (wslErr, _stdout, stderr) => {
+                compiledStderr = stderr;
+                if (!wslErr) return resolve();
+                // Fallback to native Windows compiler
+                if (isWindows && config.winCompileCmd) {
+                    exec(config.winCompileCmd!, { cwd: sessionDir }, (winErr, _ws, winStderr) => {
+                        compiledStderr = winStderr || stderr;
+                        if (winErr) reject({ message: 'Compilation Failed', stderr: winStderr || stderr, exitCode: winErr.code || 1 });
+                        else resolve();
+                    });
+                } else {
+                    reject({ message: 'Compilation Failed', stderr, exitCode: wslErr.code || 1 });
+                }
+            });
+        } else {
+            const winCompileCmd = config.winCompileCmd || config.compileCmd || '';
+            exec(winCompileCmd, { cwd: sessionDir }, (winErr, _ws, winStderr) => {
+                compiledStderr = winStderr;
+                if (!winErr) return resolve();
+                if (config.compileCmd) {
+                    const wslCompileCmd = `wsl sh -c "cd '${wslSessionDir}' && ${config.compileCmd}"`;
+                    exec(wslCompileCmd, (wslErr, _wss, wslStderr) => {
+                        compiledStderr = wslStderr || winStderr;
+                        if (wslErr) reject({ message: 'Compilation Failed', stderr: wslStderr || winStderr, exitCode: wslErr.code || 1 });
+                        else resolve();
+                    });
+                } else {
+                    reject({ message: 'Compilation Failed', stderr: winStderr, exitCode: winErr.code || 1 });
+                }
+            });
+        }
+    });
+
+    const compileDiff = process.hrtime(compileStart);
+    compileTime = Math.round((compileDiff[0] * 1000) + (compileDiff[1] / 1000000));
+
+    // Determine binary name
+    const isWsl = config.useWslFirst;
+    const binaryName = isWsl
+        ? (isWindows ? (config.winRunCmd || 'main.exe') : (config.runCmd || './main'))
+        : (isWindows ? (config.winRunCmd || config.runCmd) : (config.runCmd));
+
+    return { sessionDir, wslSessionDir, binaryName, compileTime, stderr: compiledStderr };
+}
+
+// ----------------------------------------------------------------
+// spawnInteractive(): Spawn the compiled/interpreted process with
+// open stdin/stdout pipes for interactive terminal streaming.
+// Returns the ChildProcess so caller can stream input/output.
+// ----------------------------------------------------------------
+export function spawnInteractive(
+    language: string,
+    sessionDir: string,
+    wslSessionDir: string
+): ChildProcessWithoutNullStreams {
+    const config = LANGUAGE_CONFIGS[language.toLowerCase()];
+    const isWindows = process.platform === 'win32';
+
+    if (config.useWslFirst) {
+        // Run via WSL with interactive stdin (no < input.txt redirection)
+        const runCmd = config.runCmd;
+        const wslCmd = `wsl sh -c "cd '${wslSessionDir}' && ${runCmd}"`;
+        return spawn('cmd', ['/c', wslCmd], {
+            cwd: sessionDir,
+            env: process.env,
+            windowsHide: true
+        }) as ChildProcessWithoutNullStreams;
+    } else {
+        // Run natively on Windows
+        const winRunCmd = isWindows && config.winRunCmd ? config.winRunCmd : config.runCmd;
+        // Handle multi-word commands like "python main.py", "node main.js"
+        const parts = winRunCmd.split(' ');
+        const cmd = parts[0];
+        const args = parts.slice(1);
+        return spawn(cmd, args, {
+            cwd: sessionDir,
+            env: process.env,
+            windowsHide: true
+        }) as ChildProcessWithoutNullStreams;
+    }
+}
+
+// ----------------------------------------------------------------
+// runCode(): Original HTTP batch execution (kept for non-socket fallback / Standard Console mode)
+// ----------------------------------------------------------------
 export async function runCode(language: string, code: string, stdin: string): Promise<RunResult> {
     const config = LANGUAGE_CONFIGS[language.toLowerCase()];
     if (!config) {
@@ -131,72 +256,36 @@ export async function runCode(language: string, code: string, stdin: string): Pr
     const isWindows = process.platform === 'win32';
 
     try {
-        // ----------------------------------------------------
-        // PHASE 1: COMPILE STEP (If language requires compilation)
-        // ----------------------------------------------------
+        // PHASE 1: COMPILE STEP
         if (config.compileCmd || config.winCompileCmd) {
             const compileStart = process.hrtime();
 
             await new Promise<void>((resolve, reject) => {
                 if (config.useWslFirst) {
-                    // Method A: Run via WSL (Ubuntu GCC 15 / g++20 / mcpc)
                     const wslCompileCmd = `wsl sh -c "cd '${wslSessionDir}' && ${config.compileCmd}"`;
                     exec(wslCompileCmd, (wslErr, stdout, stderr) => {
-                        if (!wslErr) {
-                            return resolve();
-                        }
-                        // Fallback to Native Windows CLI if WSL compile failed
+                        if (!wslErr) return resolve();
                         if (isWindows && config.winCompileCmd) {
-                            exec(config.winCompileCmd, { cwd: sessionDir }, (winErr, winStdout, winStderr) => {
-                                if (winErr) {
-                                    reject({
-                                        message: 'Compilation Failed',
-                                        stdout: winStdout || stdout,
-                                        stderr: winStderr || stderr || winErr.message,
-                                        exitCode: winErr.code || 1
-                                    });
-                                } else {
-                                    resolve();
-                                }
+                            exec(config.winCompileCmd!, { cwd: sessionDir }, (winErr, winStdout, winStderr) => {
+                                if (winErr) reject({ message: 'Compilation Failed', stdout: winStdout || stdout, stderr: winStderr || stderr || winErr.message, exitCode: winErr.code || 1 });
+                                else resolve();
                             });
                         } else {
-                            reject({
-                                message: 'Compilation Failed',
-                                stdout,
-                                stderr,
-                                exitCode: wslErr.code || 1
-                            });
+                            reject({ message: 'Compilation Failed', stdout, stderr, exitCode: wslErr.code || 1 });
                         }
                     });
                 } else {
-                    // Method B: Native Windows Compile First (Java / Rust / C++)
                     const winCompileCmd = config.winCompileCmd || config.compileCmd || '';
                     exec(winCompileCmd, { cwd: sessionDir }, (winErr, stdout, stderr) => {
-                        if (!winErr) {
-                            return resolve();
-                        }
-                        // Fallback to WSL if Native compile failed
+                        if (!winErr) return resolve();
                         if (config.compileCmd) {
                             const wslCompileCmd = `wsl sh -c "cd '${wslSessionDir}' && ${config.compileCmd}"`;
                             exec(wslCompileCmd, (wslErr, wslStdout, wslStderr) => {
-                                if (wslErr) {
-                                    reject({
-                                        message: 'Compilation Failed',
-                                        stdout: wslStdout || stdout,
-                                        stderr: wslStderr || stderr || wslErr.message,
-                                        exitCode: wslErr.code || 1
-                                    });
-                                } else {
-                                    resolve();
-                                }
+                                if (wslErr) reject({ message: 'Compilation Failed', stdout: wslStdout || stdout, stderr: wslStderr || stderr || wslErr.message, exitCode: wslErr.code || 1 });
+                                else resolve();
                             });
                         } else {
-                            reject({
-                                message: 'Compilation Failed',
-                                stdout,
-                                stderr,
-                                exitCode: winErr.code || 1
-                            });
+                            reject({ message: 'Compilation Failed', stdout, stderr, exitCode: winErr.code || 1 });
                         }
                     });
                 }
@@ -206,93 +295,41 @@ export async function runCode(language: string, code: string, stdin: string): Pr
             compileTime = Math.round((compileDiff[0] * 1000) + (compileDiff[1] / 1000000));
         }
 
-        // ----------------------------------------------------
         // PHASE 2: RUN / EXECUTE STEP
-        // ----------------------------------------------------
         const execStart = process.hrtime();
 
         const runResult = await new Promise<RunResult>((resolve) => {
             if (config.useWslFirst) {
-                // Execute via WSL with input piping
                 const wslRunCmd = `wsl sh -c "cd '${wslSessionDir}' && ${config.runCmd} < input.txt"`;
                 exec(wslRunCmd, { timeout: 8000 }, (wslErr, stdout, stderr) => {
                     if (!wslErr) {
                         const execDiff = process.hrtime(execStart);
-                        const executionTime = Math.round((execDiff[0] * 1000) + (execDiff[1] / 1000000));
-                        return resolve({
-                            success: true,
-                            stdout,
-                            stderr,
-                            compileTime,
-                            executionTime,
-                            exitCode: 0
-                        });
+                        return resolve({ success: true, stdout, stderr, compileTime, executionTime: Math.round((execDiff[0] * 1000) + (execDiff[1] / 1000000)), exitCode: 0 });
                     }
-
-                    // Native Windows Fallback Execution
                     if (isWindows && config.winRunCmd) {
                         const winRunCmd = `type input.txt | ${config.winRunCmd}`;
                         exec(winRunCmd, { cwd: sessionDir, timeout: 8000 }, (winErr, winStdout, winStderr) => {
                             const execDiff = process.hrtime(execStart);
-                            const executionTime = Math.round((execDiff[0] * 1000) + (execDiff[1] / 1000000));
                             const exitCode = winErr ? winErr.code || null : 0;
-                            const isTimedOut = winErr && winErr.killed;
-
-                            resolve({
-                                success: exitCode === 0,
-                                stdout: winStdout,
-                                stderr: isTimedOut ? 'Execution Timed Out (Limit: 8 seconds)' : winStderr,
-                                compileTime,
-                                executionTime,
-                                exitCode
-                            });
+                            resolve({ success: exitCode === 0, stdout: winStdout, stderr: winErr?.killed ? 'Execution Timed Out (Limit: 8 seconds)' : winStderr, compileTime, executionTime: Math.round((execDiff[0] * 1000) + (execDiff[1] / 1000000)), exitCode });
                         });
                     } else {
                         const execDiff = process.hrtime(execStart);
-                        const executionTime = Math.round((execDiff[0] * 1000) + (execDiff[1] / 1000000));
-                        resolve({
-                            success: false,
-                            stdout,
-                            stderr: wslErr.killed ? 'Execution Timed Out (Limit: 8 seconds)' : stderr,
-                            compileTime,
-                            executionTime,
-                            exitCode: wslErr.code || 1
-                        });
+                        resolve({ success: false, stdout, stderr: wslErr.killed ? 'Execution Timed Out (Limit: 8 seconds)' : stderr, compileTime, executionTime: Math.round((execDiff[0] * 1000) + (execDiff[1] / 1000000)), exitCode: wslErr.code || 1 });
                     }
                 });
             } else {
-                // Execute Native Windows Process First (Python, Node.js, Java, Go, Rust)
                 const winRunCmd = isWindows && config.winRunCmd ? `type input.txt | ${config.winRunCmd}` : `${config.runCmd} < input.txt`;
                 exec(winRunCmd, { cwd: sessionDir, timeout: 8000 }, (winErr, winStdout, winStderr) => {
                     if (!winErr) {
                         const execDiff = process.hrtime(execStart);
-                        const executionTime = Math.round((execDiff[0] * 1000) + (execDiff[1] / 1000000));
-                        return resolve({
-                            success: true,
-                            stdout: winStdout,
-                            stderr: winStderr,
-                            compileTime,
-                            executionTime,
-                            exitCode: 0
-                        });
+                        return resolve({ success: true, stdout: winStdout, stderr: winStderr, compileTime, executionTime: Math.round((execDiff[0] * 1000) + (execDiff[1] / 1000000)), exitCode: 0 });
                     }
-
-                    // WSL Fallback Execution
                     const wslRunCmd = `wsl sh -c "cd '${wslSessionDir}' && ${config.runCmd} < input.txt"`;
                     exec(wslRunCmd, { timeout: 8000 }, (wslErr, wslStdout, wslStderr) => {
                         const execDiff = process.hrtime(execStart);
-                        const executionTime = Math.round((execDiff[0] * 1000) + (execDiff[1] / 1000000));
                         const exitCode = wslErr ? wslErr.code || null : 0;
-                        const isTimedOut = wslErr && wslErr.killed;
-
-                        resolve({
-                            success: exitCode === 0,
-                            stdout: wslStdout || winStdout,
-                            stderr: isTimedOut ? 'Execution Timed Out (Limit: 8 seconds)' : (wslStderr || winStderr),
-                            compileTime,
-                            executionTime,
-                            exitCode
-                        });
+                        resolve({ success: exitCode === 0, stdout: wslStdout || winStdout, stderr: wslErr?.killed ? 'Execution Timed Out (Limit: 8 seconds)' : (wslStderr || winStderr), compileTime, executionTime: Math.round((execDiff[0] * 1000) + (execDiff[1] / 1000000)), exitCode });
                     });
                 });
             }
@@ -327,3 +364,5 @@ function cleanUpSessionDir(dirPath: string) {
         console.error('Failed to clean up session directory:', dirPath, e);
     }
 }
+
+export { cleanUpSessionDir };
