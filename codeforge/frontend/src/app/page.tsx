@@ -1541,7 +1541,7 @@ export default function Home() {
                   setStderr('');
                   setConsoleInputLine('');
                 }}
-                className="px-2.5 py-1 text-[11px] font-bold bg-[#334155] hover:bg-[#475569] text-white rounded flex items-center gap-1 transition-all"
+                className="px-2.5 py-1 text-[11px] font-bold bg-[#334155] hover:bg-[#475569] text-white rounded flex items-center gap-1 transition-all whitespace-nowrap shrink-0"
                 title="Clear Terminal Output & Reset Stdin"
               >
                 <Trash2 size={11} />
