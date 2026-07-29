@@ -76,7 +76,18 @@ const LANGUAGE_CONFIGS = {
     }
 };
 
-const TEMP_DIR = path.join(__dirname, 'build', 'temp');
+const TEMP_DIR = path.join(os.tmpdir(), 'mcpc-temp');
+
+function toWslPath(winPath) {
+    const cleanPath = path.resolve(winPath).replace(/\\/g, '/');
+    const match = cleanPath.match(/^([a-zA-Z]):\/(.*)/);
+    if (match) {
+        const drive = match[1].toLowerCase();
+        const rest = match[2];
+        return `/mnt/${drive}/${rest}`;
+    }
+    return cleanPath;
+}
 
 function cleanUpSessionDir(dirPath) {
     try {
@@ -242,10 +253,11 @@ app.post('/api/compile', (req, res) => {
 
     fs.writeFileSync(sourcePath, code, 'utf8');
 
-    const relativeSessionDir = path.relative(__dirname, sessionDir).replace(/\\/g, '/');
-    const cmd = `wsl sh -c "cd ${relativeSessionDir} && ../../mcpc main.mcpp -S -o main.s"`;
+    const wslSessionDir = toWslPath(sessionDir);
+    const wslCompilerPath = toWslPath(path.join(__dirname, 'build', 'mcpc'));
+    const cmd = `wsl sh -c "cd '${wslSessionDir}' && '${wslCompilerPath}' main.mcpp -S -o main.s"`;
 
-    exec(cmd, { cwd: __dirname }, (error, stdout, stderr) => {
+    exec(cmd, (error, stdout, stderr) => {
         if (error) {
             cleanUpSessionDir(sessionDir);
             return res.json({
@@ -296,7 +308,7 @@ app.post('/api/run', async (req, res) => {
     fs.writeFileSync(sourcePath, code, 'utf8');
     fs.writeFileSync(stdinPath, stdin || '', 'utf8');
 
-    const relativeSessionDir = path.relative(__dirname, sessionDir).replace(/\\/g, '/');
+    const wslSessionDir = toWslPath(sessionDir);
 
     let compileTime = 0;
     const compileStart = process.hrtime();
@@ -304,9 +316,18 @@ app.post('/api/run', async (req, res) => {
     try {
         // Phase 1: Compile if compileCmd is defined
         if (config.compileCmd) {
-            const compileCmd = `wsl sh -c "cd ${relativeSessionDir} && ${config.compileCmd}"`;
+            let compileCmdText = config.compileCmd;
+            if (language.toLowerCase() === 'mcpp') {
+                const wslCompilerPath = toWslPath(path.join(__dirname, 'build', 'mcpc'));
+                compileCmdText = `'${wslCompilerPath}' main.mcpp -S -o main.s`;
+            } else if (language.toLowerCase() === 'java') {
+                const jdkPath = path.join(__dirname, 'codeforge', 'backend', 'jdk');
+                const wslJavac = toWslPath(path.join(jdkPath, 'bin', 'javac'));
+                compileCmdText = `if [ -f '${wslJavac}' ]; then '${wslJavac}' Main.java; else javac Main.java; fi`;
+            }
+            const compileCmd = `wsl sh -c "cd '${wslSessionDir}' && ${compileCmdText}"`;
             await new Promise((resolve, reject) => {
-                exec(compileCmd, { cwd: __dirname }, (err, stdout, stderr) => {
+                exec(compileCmd, (err, stdout, stderr) => {
                     if (err) {
                         reject({
                             message: 'Compilation Failed',
@@ -325,10 +346,16 @@ app.post('/api/run', async (req, res) => {
 
         // Phase 2: Execute code
         const execStart = process.hrtime();
-        const runCmd = `wsl sh -c "cd ${relativeSessionDir} && ${config.runCmd} < input.txt"`;
+        let runCmdText = config.runCmd;
+        if (language.toLowerCase() === 'java') {
+            const jdkPath = path.join(__dirname, 'codeforge', 'backend', 'jdk');
+            const wslJava = toWslPath(path.join(jdkPath, 'bin', 'java'));
+            runCmdText = `if [ -f '${wslJava}' ]; then '${wslJava}' Main; else java Main; fi`;
+        }
+        const runCmd = `wsl sh -c "cd '${wslSessionDir}' && ${runCmdText} < input.txt"`;
 
         const runResult = await new Promise((resolve) => {
-            exec(runCmd, { cwd: __dirname, timeout: 5000 }, (err, stdout, stderr) => {
+            exec(runCmd, { timeout: 5000 }, (err, stdout, stderr) => {
                 const execDiff = process.hrtime(execStart);
                 const executionTime = Math.round((execDiff[0] * 1000) + (execDiff[1] / 1000000));
                 const exitCode = err ? err.code || null : 0;

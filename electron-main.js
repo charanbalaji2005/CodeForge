@@ -7,6 +7,13 @@ const { spawn } = require('child_process');
 let mainWindow;
 const PORT = process.env.PORT || 3002;
 
+// Start the local Express server (server.js)
+try {
+    require('./server.js');
+} catch (err) {
+    console.error('Failed to start local Express server:', err);
+}
+
 // Default local project directory: Documents/CodeForge-projects
 const PROJECTS_DIR = path.join(os.homedir(), 'Documents', 'CodeForge-projects');
 
@@ -42,16 +49,23 @@ function createWindow() {
         }
     });
 
-    // Load Next.js CodeForge with desktop=true flag to launch directly into IDE workspace
-    const appUrl = `http://localhost:${PORT}?desktop=true`;
+    // Determine if we are in development or packaged production mode
+    const isDev = !app.isPackaged;
+    const appUrl = isDev ? `http://localhost:${PORT}?desktop=true` : 'http://localhost:3000';
 
     const loadApp = (url) => {
         mainWindow.loadURL(url).catch(() => {
-            setTimeout(() => {
-                mainWindow.loadURL(url).catch(() => {
-                    mainWindow.loadURL('http://localhost:3000');
+            if (isDev) {
+                setTimeout(() => {
+                    mainWindow.loadURL(url).catch(() => {
+                        mainWindow.loadURL('http://localhost:3000');
+                    });
+                }, 1000);
+            } else {
+                mainWindow.loadURL('http://localhost:3000').catch((err) => {
+                    console.error('Failed to load local server URL:', err);
                 });
-            }, 1000);
+            }
         });
     };
 

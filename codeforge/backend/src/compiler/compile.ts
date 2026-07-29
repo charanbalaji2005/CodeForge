@@ -16,16 +16,16 @@ export const LANGUAGE_CONFIGS: Record<string, LanguageConfig> = {
     c: {
         name: 'C',
         fileName: 'main.c',
-        compileCmd: 'gcc -O2 -std=c17 main.c -o main',
+        compileCmd: 'gcc -O2 -std=c17 main.c -lm -pthread -o main',
         runCmd: './main',
-        winCompileCmd: 'gcc -O2 main.c -o main.exe',
+        winCompileCmd: 'gcc -O2 main.c -lm -o main.exe',
         winRunCmd: 'main.exe',
         useWslFirst: true
     },
     cpp: {
         name: 'C++',
         fileName: 'main.cpp',
-        compileCmd: 'g++ -std=c++20 -O2 main.cpp -o main',
+        compileCmd: 'g++ -std=c++20 -O2 main.cpp -pthread -o main',
         runCmd: './main',
         winCompileCmd: 'g++ -O2 main.cpp -o main.exe',
         winRunCmd: 'main.exe',
@@ -43,6 +43,20 @@ export const LANGUAGE_CONFIGS: Record<string, LanguageConfig> = {
         fileName: 'main.js',
         runCmd: 'node main.js',
         winRunCmd: 'node main.js',
+        useWslFirst: false
+    },
+    typescript: {
+        name: 'TypeScript',
+        fileName: 'main.ts',
+        runCmd: 'npx tsx main.ts || npx ts-node main.ts',
+        winRunCmd: 'npx tsx main.ts || npx ts-node main.ts',
+        useWslFirst: false
+    },
+    ts: {
+        name: 'TypeScript',
+        fileName: 'main.ts',
+        runCmd: 'npx tsx main.ts || npx ts-node main.ts',
+        winRunCmd: 'npx tsx main.ts || npx ts-node main.ts',
         useWslFirst: false
     },
     java: {
@@ -68,6 +82,77 @@ export const LANGUAGE_CONFIGS: Record<string, LanguageConfig> = {
         runCmd: './main',
         winCompileCmd: 'rustc main.rs -o main.exe',
         winRunCmd: 'main.exe',
+        useWslFirst: false
+    },
+    csharp: {
+        name: 'C# (.NET)',
+        fileName: 'Program.cs',
+        compileCmd: 'csc /out:main.exe Program.cs || dotnet build',
+        runCmd: './main.exe || dotnet run',
+        winCompileCmd: 'csc /out:main.exe Program.cs || dotnet build',
+        winRunCmd: 'main.exe || dotnet run',
+        useWslFirst: false
+    },
+    cs: {
+        name: 'C# (.NET)',
+        fileName: 'Program.cs',
+        compileCmd: 'csc /out:main.exe Program.cs || dotnet build',
+        runCmd: './main.exe || dotnet run',
+        winCompileCmd: 'csc /out:main.exe Program.cs || dotnet build',
+        winRunCmd: 'main.exe || dotnet run',
+        useWslFirst: false
+    },
+    php: {
+        name: 'PHP',
+        fileName: 'main.php',
+        runCmd: 'php main.php',
+        winRunCmd: 'php main.php',
+        useWslFirst: false
+    },
+    ruby: {
+        name: 'Ruby',
+        fileName: 'main.rb',
+        runCmd: 'ruby main.rb',
+        winRunCmd: 'ruby main.rb',
+        useWslFirst: false
+    },
+    kotlin: {
+        name: 'Kotlin',
+        fileName: 'Main.kt',
+        compileCmd: 'kotlinc Main.kt -include-runtime -d main.jar',
+        runCmd: 'java -jar main.jar',
+        winCompileCmd: 'kotlinc Main.kt -include-runtime -d main.jar',
+        winRunCmd: 'java -jar main.jar',
+        useWslFirst: false
+    },
+    swift: {
+        name: 'Swift',
+        fileName: 'main.swift',
+        compileCmd: 'swiftc main.swift -o main',
+        runCmd: './main',
+        winCompileCmd: 'swiftc main.swift -o main.exe',
+        winRunCmd: 'main.exe',
+        useWslFirst: false
+    },
+    bash: {
+        name: 'Bash Script',
+        fileName: 'main.sh',
+        runCmd: 'bash main.sh',
+        winRunCmd: 'bash main.sh',
+        useWslFirst: true
+    },
+    r: {
+        name: 'R Language',
+        fileName: 'main.R',
+        runCmd: 'Rscript main.R',
+        winRunCmd: 'Rscript main.R',
+        useWslFirst: false
+    },
+    perl: {
+        name: 'Perl',
+        fileName: 'main.pl',
+        runCmd: 'perl main.pl',
+        winRunCmd: 'perl main.pl',
         useWslFirst: false
     },
     mcpp: {

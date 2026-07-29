@@ -20,6 +20,7 @@
   "build": {
     "appId": "com.mcpc.compiler",
     "productName": "CodeForge Desktop Compiler",
+    "asar": false,
     "directories": {
       "output": "dist"
     },
@@ -29,6 +30,7 @@
       "server.js",
       "package.json",
       "public/**/*",
+      "build/mcpc",
       "codeforge/frontend/src/**/*",
       "codeforge/backend/src/**/*",
       "codeforge/backend/package.json"

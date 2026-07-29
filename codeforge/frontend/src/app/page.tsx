@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import MonacoEditor from '@monaco-editor/react';
+import LandingPage from './components/landing/LandingPage';
 import { 
   Play, 
   Terminal as TerminalIcon, 
@@ -218,10 +219,19 @@ function getLanguageFromFilename(filename: string): string {
   if (ext === 'cpp' || ext === 'cc' || ext === 'h') return 'cpp';
   if (ext === 'c') return 'c';
   if (ext === 'py') return 'python';
-  if (ext === 'js' || ext === 'ts') return 'javascript';
+  if (ext === 'ts') return 'typescript';
+  if (ext === 'js') return 'javascript';
   if (ext === 'java') return 'java';
   if (ext === 'go') return 'go';
   if (ext === 'rs') return 'rust';
+  if (ext === 'cs') return 'csharp';
+  if (ext === 'php') return 'php';
+  if (ext === 'rb') return 'ruby';
+  if (ext === 'kt' || ext === 'kts') return 'kotlin';
+  if (ext === 'swift') return 'swift';
+  if (ext === 'sh' || ext === 'bash') return 'bash';
+  if (ext === 'r') return 'r';
+  if (ext === 'pl') return 'perl';
   return 'mcpp';
 }
 
@@ -384,69 +394,61 @@ export default function Home() {
 
   // Real Google Auth Handler & MongoDB Atlas Storage
   const handleGoogleSignIn = async () => {
-    // 1. Check if Google Identity Services SDK is loaded
-    if (typeof window !== 'undefined' && (window as any).google?.accounts?.id) {
-      (window as any).google.accounts.id.initialize({
-        client_id: "644632951361-lrjmck8mkvqt8ekiveju75pletd8b9g8.apps.googleusercontent.com",
-        callback: async (response: any) => {
-          try {
-            const res = await fetch(`${BACKEND_URL}/api/auth/google`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ credential: response.credential })
-            });
-            const data = await res.json();
-            if (data.success && data.user) {
-              const profile: UserProfile = {
-                name: data.user.name || 'Google User',
-                email: data.user.email || 'user@gmail.com',
-                avatar: data.user.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=120&q=80',
-                isGuest: false
-              };
-              setUserProfile(profile);
-              setShowAuthModal(false);
-              setViewMode('ide');
-              return;
+    // Check if Google Identity Services SDK is loaded
+    if (typeof window !== 'undefined' && (window as any).google?.accounts?.oauth2) {
+      try {
+        const client = (window as any).google.accounts.oauth2.initTokenClient({
+          client_id: "644632951361-lrjmck8mkvqt8ekiveju75pletd8b9g8.apps.googleusercontent.com",
+          scope: "openid email profile",
+          callback: async (tokenResponse: any) => {
+            if (tokenResponse && tokenResponse.access_token) {
+              try {
+                // Fetch user info from Google's userinfo API
+                const userInfoRes = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
+                  headers: { Authorization: `Bearer ${tokenResponse.access_token}` }
+                });
+                const userInfo = await userInfoRes.json();
+                
+                if (userInfo && userInfo.email) {
+                  // Register/login in our backend database
+                  const res = await fetch(`${BACKEND_URL}/api/auth/google`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      googleId: userInfo.sub,
+                      email: userInfo.email,
+                      name: userInfo.name,
+                      avatar: userInfo.picture
+                    })
+                  });
+                  const data = await res.json();
+                  if (data.success && data.user) {
+                    const profile: UserProfile = {
+                      name: data.user.name || userInfo.name || 'Google User',
+                      email: data.user.email || userInfo.email,
+                      avatar: data.user.avatar || userInfo.picture || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=120&q=80',
+                      isGuest: false
+                    };
+                    setUserProfile(profile);
+                    setShowAuthModal(false);
+                    setViewMode('ide');
+                  }
+                }
+              } catch (fetchErr) {
+                console.error('Error fetching Google user profile:', fetchErr);
+              }
             }
-          } catch (e) {
-            console.error('Google Auth verification error:', e);
           }
-        }
-      });
-      (window as any).google.accounts.id.prompt();
+        });
+        client.requestAccessToken();
+        return;
+      } catch (clientErr) {
+        console.error('Failed to initialize Google token client:', clientErr);
+      }
     }
 
-    // 2. Real Google OAuth Account Prompt
-    const userEmail = prompt('Enter your Real Google Account Email:', 'charan@gmail.com');
-    if (!userEmail) return;
-
-    const userName = userEmail.split('@')[0];
-    const realUser: UserProfile = {
-      name: userName.charAt(0).toUpperCase() + userName.slice(1) + ' (Google User)',
-      email: userEmail,
-      avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=120&q=80',
-      isGuest: false
-    };
-
-    try {
-      await fetch(`${BACKEND_URL}/api/auth/google`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          googleId: 'google_user_' + Date.now(),
-          email: realUser.email,
-          name: realUser.name,
-          avatar: realUser.avatar
-        })
-      });
-      console.log('[MongoDB Atlas] Real User signup saved to database!');
-    } catch (err) {
-      console.error('MongoDB Atlas Auth sync note:', err);
-    }
-
-    setUserProfile(realUser);
-    setShowAuthModal(false);
-    setViewMode('ide');
+    // Fallback if SDK fails to load or error occurs - display a nice error instead of prompt
+    alert('Google Identity Services SDK is not loaded. Please ensure you are online and reload the page.');
   };
 
   const handleSkipAuth = () => {
@@ -877,171 +879,11 @@ export default function Home() {
   // ----------------------------------------------------
   if (viewMode === 'landing') {
     return (
-      <div className="min-h-screen bg-[#0F172A] text-[#F8FAFC] font-sans flex flex-col justify-between overflow-x-hidden selection:bg-[#F97316] selection:text-white">
-        
-        {/* Navigation Bar with Uploaded Anvil Logo */}
-        <nav className="h-20 border-b border-[#334155] bg-[#0F172A]/90 backdrop-blur-md px-6 md:px-12 flex items-center justify-between sticky top-0 z-40">
-          <div className="flex items-center gap-3 cursor-pointer" onClick={() => setViewMode('landing')}>
-            <img src="/logo.png" alt="CodeForge Logo" className="h-10 w-auto object-contain drop-shadow-md" />
-            <span className="bg-gradient-to-r from-[#F97316] to-[#0EA5E9] bg-clip-text text-transparent font-extrabold text-xl tracking-tight hidden sm:inline">
-              CodeForge Desktop
-            </span>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <button 
-              onClick={handleGoogleSignIn}
-              className="flex items-center gap-2 px-4 py-2 text-xs font-bold text-gray-900 bg-white hover:bg-gray-100 rounded-lg shadow-md transition-all"
-            >
-              <svg className="w-4 h-4" viewBox="0 0 24 24">
-                <path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.17z"/>
-                <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.29v3.15C3.26 21.3 7.31 24 12 24z"/>
-                <path fill="#FBBC05" d="M5.28 14.26c-.25-.72-.38-1.49-.38-2.26s.13-1.54.38-2.26V6.59H1.29C.47 8.23 0 10.06 0 12s.47 3.77 1.29 5.41l3.99-3.15z"/>
-                <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.31 0 3.26 2.7 1.29 6.59l3.99 3.15c.95-2.83 3.6-4.99 6.72-4.99z"/>
-              </svg>
-              <span>Sign In with Google</span>
-            </button>
-
-            <button 
-              onClick={handleSkipAuth}
-              className="flex items-center gap-2 px-4 py-2 text-xs font-bold text-white bg-[#1E293B] hover:bg-[#334155] border border-[#334155] rounded-lg transition-all"
-            >
-              <span>Skip as Guest</span>
-              <ChevronRight size={14} />
-            </button>
-          </div>
-        </nav>
-
-        {/* Hero Section */}
-        <section className="relative px-6 py-16 md:py-24 max-w-6xl mx-auto flex flex-col items-center text-center">
-          {/* Flame Glow Backdrop */}
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[550px] h-[320px] bg-[#F97316]/15 blur-[130px] rounded-full pointer-events-none"></div>
-
-          {/* Large Hero Logo Badge */}
-          <div className="mb-6 p-4 rounded-3xl bg-[#1E293B]/80 border border-[#334155] shadow-2xl shadow-[#F97316]/10 flex items-center justify-center backdrop-blur-md transform hover:scale-105 transition-all">
-            <img src="/logo.png" alt="CodeForge Anvil Logo" className="h-28 md:h-36 w-auto object-contain" />
-          </div>
-
-          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#1E293B] border border-[#334155] text-xs font-medium text-[#F97316] mb-6 shadow-inner">
-            <Sparkles size={14} className="text-[#F97316]" />
-            <span>High Performance Handwritten MiniCPP (mcpc) + Groq AI Assistant</span>
-          </div>
-
-          <h1 className="text-4xl md:text-6xl font-extrabold tracking-tight text-white max-w-4xl leading-tight">
-            Forge Your Code with Precision <br className="hidden md:block" />
-            <span className="bg-gradient-to-r from-[#F97316] via-[#FF8C00] to-[#0EA5E9] bg-clip-text text-transparent">
-              Natively on x86/x64 Windows Laptops
-            </span>
-          </h1>
-
-          <p className="mt-6 text-base md:text-lg text-[#94A3B8] max-w-2xl leading-relaxed">
-            Run MiniCPP, C++, C, Python, JavaScript, Java, Go, and Rust. Signed-in Google users get Groq AI code summaries, automatic error correction, and code generation backed by MongoDB Atlas storage!
-          </p>
-
-          {/* MAIN PROMINENT BUTTONS ON LANDING PAGE */}
-          <div className="mt-10 flex flex-col sm:flex-row items-center gap-4 w-full sm:w-auto">
-            {/* GOOGLE SIGN IN BUTTON */}
-            <button
-              onClick={handleGoogleSignIn}
-              className="w-full sm:w-auto px-8 py-3.5 text-sm font-bold text-gray-900 bg-white hover:bg-gray-100 rounded-xl shadow-xl shadow-white/10 flex items-center justify-center gap-3 transition-all transform hover:-translate-y-0.5"
-            >
-              <svg className="w-4 h-4" viewBox="0 0 24 24">
-                <path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.17z"/>
-                <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.29v3.15C3.26 21.3 7.31 24 12 24z"/>
-                <path fill="#FBBC05" d="M5.28 14.26c-.25-.72-.38-1.49-.38-2.26s.13-1.54.38-2.26V6.59H1.29C.47 8.23 0 10.06 0 12s.47 3.77 1.29 5.41l3.99-3.15z"/>
-                <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.31 0 3.26 2.7 1.29 6.59l3.99 3.15c.95-2.83 3.6-4.99 6.72-4.99z"/>
-              </svg>
-              <span>Sign In with Google</span>
-            </button>
-
-            {/* SKIP AS GUEST BUTTON */}
-            <button
-              onClick={handleSkipAuth}
-              className="w-full sm:w-auto px-8 py-3.5 text-sm font-bold text-white bg-gradient-to-r from-[#F97316] to-[#EA580C] hover:brightness-110 rounded-xl shadow-xl shadow-[#F97316]/25 flex items-center justify-center gap-2 transition-all transform hover:-translate-y-0.5"
-            >
-              <span>Skip & Continue as Guest</span>
-              <ArrowRight size={16} />
-            </button>
-
-            {/* DOWNLOAD DESKTOP APP BUTTON */}
-            <button
-              onClick={handleDownloadDesktopApp}
-              className="w-full sm:w-auto px-8 py-3.5 text-sm font-bold text-[#F8FAFC] bg-[#1E293B] hover:bg-[#334155] border border-[#334155] rounded-xl flex items-center justify-center gap-2.5 transition-all"
-            >
-              <Laptop size={18} className="text-[#0EA5E9]" />
-              <span>Download Desktop App (.exe)</span>
-            </button>
-          </div>
-
-          {/* Quick Feature Badges */}
-          <div className="mt-12 flex flex-wrap justify-center gap-6 text-xs font-mono text-[#94A3B8]">
-            <div className="flex items-center gap-1.5">
-              <CheckCircle2 size={14} className="text-[#F97316]" />
-              <span>Offline `Documents/mcpc-projects` Disk Storage</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <CheckCircle2 size={14} className="text-[#F97316]" />
-              <span>Groq Llama-3 AI Summary & Auto-Fix</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <CheckCircle2 size={14} className="text-[#F97316]" />
-              <span>Compatible with All Windows Laptops</span>
-            </div>
-          </div>
-        </section>
-
-        {/* Features Grid */}
-        <section className="px-6 py-16 bg-[#1E293B]/40 border-t border-[#334155]">
-          <div className="max-w-6xl mx-auto">
-            <h2 className="text-2xl font-bold text-center text-white mb-12">Built for Performance, AI Autonomy & Native Desktop Execution</h2>
-
-            <div className="grid md:grid-cols-3 gap-6">
-              <div className="p-6 rounded-2xl bg-[#0F172A] border border-[#334155] hover:border-[#F97316] transition-all">
-                <div className="w-10 h-10 rounded-xl bg-[#F97316]/10 text-[#F97316] flex items-center justify-center mb-4">
-                  <Wrench size={20} />
-                </div>
-                <h3 className="text-base font-bold text-white mb-2">Groq AI Error Correction</h3>
-                <p className="text-xs text-[#94A3B8] leading-relaxed">
-                  Encounter a compilation error? Click 1-button AI Auto-Fix to diagnose the error and apply the corrected code into your editor.
-                </p>
-              </div>
-
-              <div className="p-6 rounded-2xl bg-[#0F172A] border border-[#334155] hover:border-[#0EA5E9] transition-all">
-                <div className="w-10 h-10 rounded-xl bg-[#0EA5E9]/10 text-[#0EA5E9] flex items-center justify-center mb-4">
-                  <FileSearch size={20} />
-                </div>
-                <h3 className="text-base font-bold text-white mb-2">AI Code Summarization</h3>
-                <p className="text-xs text-[#94A3B8] leading-relaxed">
-                  Instantly generate concise bullet-point summaries of complex algorithms, structures, and function calls in your code.
-                </p>
-              </div>
-
-              <div className="p-6 rounded-2xl bg-[#0F172A] border border-[#334155] hover:border-[#FACC15] transition-all">
-                <div className="w-10 h-10 rounded-xl bg-[#FACC15]/10 text-[#FACC15] flex items-center justify-center mb-4">
-                  <Laptop size={20} />
-                </div>
-                <h3 className="text-base font-bold text-white mb-2">Desktop x86 Executables</h3>
-                <p className="text-xs text-[#94A3B8] leading-relaxed">
-                  Download and run as a standalone Windows desktop app with native file dialogues, native menu bar, and local persistence.
-                </p>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* Footer */}
-        <footer className="h-16 border-t border-[#334155] px-6 flex items-center justify-between text-xs text-[#94A3B8]">
-          <div className="flex items-center gap-2">
-            <img src="/logo.png" alt="CodeForge" className="h-6 w-auto" />
-            <span>© 2026 CodeForge MCPC Compiler Desktop</span>
-          </div>
-          <div className="flex gap-4">
-            <button onClick={handleSkipAuth} className="hover:text-white">Open IDE</button>
-            <button onClick={handleDownloadDesktopApp} className="hover:text-white">Download Desktop (.exe)</button>
-          </div>
-        </footer>
-
-      </div>
+      <LandingPage
+        onStartCoding={handleSkipAuth}
+        onGoogleSignIn={handleGoogleSignIn}
+        onDownloadDesktop={handleDownloadDesktopApp}
+      />
     );
   }
 
@@ -1049,24 +891,24 @@ export default function Home() {
   // RENDER: FULL IDE COMPILER WORKSPACE VIEW
   // ----------------------------------------------------
   return (
-    <div className="flex flex-col h-screen bg-[#0F172A] text-[#F8FAFC] overflow-hidden font-sans select-none">
+    <div className="flex flex-col h-screen bg-[#1E1E1E] text-[#D4D4D4] overflow-hidden font-sans select-none">
       
       {/* Top Header with Uploaded Anvil Logo */}
-      <header className="h-14 bg-[#1E293B] border-b border-[#334155] flex items-center justify-between px-4 shrink-0">
+      <header className="h-12 bg-[#181818] border-b border-[#3C3C3C] flex items-center justify-between px-4 shrink-0">
         <div className="flex items-center gap-3">
           {/* Logo Brand */}
           <div className="flex items-center gap-2 cursor-pointer" onClick={() => setViewMode('landing')}>
             <img src="/logo.png" alt="CodeForge Logo" className="h-8 w-auto object-contain" />
-            <span className="font-extrabold text-white text-sm">CodeForge <span className="text-[#F97316]">Desktop</span></span>
+            <span className="font-extrabold text-white text-sm">CodeForge <span className="text-[#007ACC]">Desktop</span></span>
           </div>
-          <span className="text-[10px] bg-[#334155] px-2 py-0.5 rounded text-[#94A3B8] font-mono">
+          <span className="text-[10px] bg-[#252526] border border-[#3C3C3C] px-2 py-0.5 rounded text-[#CCCCCC] font-mono">
             v1.0 Edition
           </span>
-          <div className="h-4 w-[1px] bg-[#334155] mx-1"></div>
+          <div className="h-4 w-[1px] bg-[#3C3C3C] mx-1"></div>
           {/* Active File Tab representation */}
-          <div className="flex items-center gap-1.5 text-xs text-[#F8FAFC]">
-            <FileCode size={13} className="text-[#F97316]" />
-            <span className="font-mono font-bold">{activeFile ? activeFile.name : 'main.mcpp'}</span>
+          <div className="flex items-center gap-1.5 text-xs text-[#D4D4D4]">
+            <FileCode size={13} className="text-[#007ACC]" />
+            <span className="font-mono font-semibold">{activeFile ? activeFile.name : 'main.mcpp'}</span>
           </div>
         </div>
 
@@ -1082,7 +924,7 @@ export default function Home() {
                 setFiles(prev => prev.map(f => f.id === activeFile.id ? { ...f, language: newLang } : f));
               }
             }}
-            className="text-xs px-2.5 py-1 bg-[#0F172A] border border-[#334155] text-white hover:bg-[#334155] cursor-pointer focus:outline-none focus:border-[#F97316] rounded-md transition-colors font-mono"
+            className="text-xs px-2.5 py-1 bg-[#252526] border border-[#3C3C3C] text-[#D4D4D4] hover:bg-[#3C3C3C] cursor-pointer focus:outline-none focus:border-[#007ACC] rounded-md transition-colors font-mono"
           >
             <option value="mcpp">MiniCPP (mcpc)</option>
             <option value="cpp">C++ (std::c++20)</option>
@@ -1094,22 +936,22 @@ export default function Home() {
             <option value="rust">Rust (rustc)</option>
           </select>
 
-          <div className="h-4 w-[1px] bg-[#334155] mx-1"></div>
+          <div className="h-4 w-[1px] bg-[#3C3C3C] mx-1"></div>
 
           {/* Action buttons */}
           <button
             onClick={handleAddNewFile}
             title="Create New File"
-            className="p-1.5 rounded-md hover:bg-[#334155] text-[#94A3B8] hover:text-white transition-colors flex items-center gap-1 text-xs"
+            className="p-1.5 rounded-md hover:bg-[#2A2D2E] text-[#CCCCCC] hover:text-white transition-colors flex items-center gap-1 text-xs"
           >
-            <Plus size={14} className="text-[#F97316]" />
+            <Plus size={14} className="text-[#007ACC]" />
             <span>New File</span>
           </button>
 
           <button
             onClick={handleResetCode}
             title="Reset code template"
-            className="p-1.5 rounded-md hover:bg-[#334155] text-[#94A3B8] hover:text-white transition-colors"
+            className="p-1.5 rounded-md hover:bg-[#2A2D2E] text-[#CCCCCC] hover:text-white transition-colors"
           >
             <RefreshCw size={13} />
           </button>
@@ -1117,7 +959,7 @@ export default function Home() {
           <button
             onClick={handleDownload}
             title="Download source"
-            className="p-1.5 rounded-md hover:bg-[#334155] text-[#94A3B8] hover:text-white transition-colors"
+            className="p-1.5 rounded-md hover:bg-[#2A2D2E] text-[#CCCCCC] hover:text-white transition-colors"
           >
             <Download size={13} />
           </button>
@@ -1125,18 +967,18 @@ export default function Home() {
           <button
             onClick={handleShare}
             title="Share snippet"
-            className="p-1.5 rounded-md hover:bg-[#334155] text-[#94A3B8] hover:text-white transition-colors"
+            className="p-1.5 rounded-md hover:bg-[#2A2D2E] text-[#CCCCCC] hover:text-white transition-colors"
           >
             <Share2 size={13} />
           </button>
 
-          <div className="h-4 w-[1px] bg-[#334155] mx-1"></div>
+          <div className="h-4 w-[1px] bg-[#3C3C3C] mx-1"></div>
 
           {/* Run and Compile Flat buttons */}
           <button
             onClick={handleRun}
             disabled={isRunning}
-            className="flex items-center gap-1.5 px-3.5 py-1 bg-gradient-to-r from-[#F97316] to-[#EA580C] hover:brightness-110 disabled:opacity-50 text-white font-bold rounded-md transition-colors text-xs shadow-md"
+            className="flex items-center gap-1.5 px-3.5 py-1 bg-[#22C55E] hover:bg-[#22C55E]/90 disabled:opacity-50 text-white font-bold rounded-md transition-all text-xs shadow-md"
           >
             {isRunning ? (
               <Cpu size={12} className="animate-spin text-white" />
@@ -1146,41 +988,41 @@ export default function Home() {
             Run Code
           </button>
 
-          <div className="h-4 w-[1px] bg-[#334155] mx-1"></div>
+          <div className="h-4 w-[1px] bg-[#3C3C3C] mx-1"></div>
 
           {/* User Profile / Expandable Profile Dropdown Card */}
           <div className="relative">
             <button
               onClick={() => setShowProfileDropdown(!showProfileDropdown)}
               title="User Profile & Settings"
-              className="flex items-center gap-2 px-3 py-1 bg-[#0F172A] hover:bg-[#334155] border border-[#334155] rounded-md text-xs text-[#94A3B8] hover:text-white transition-colors shadow-sm"
+              className="flex items-center gap-2 px-3 py-1 bg-[#252526] hover:bg-[#2A2D2E] border border-[#3C3C3C] rounded-md text-xs text-[#CCCCCC] hover:text-white transition-colors shadow-sm"
             >
               {userProfile?.avatar ? (
-                <img src={userProfile.avatar} alt="Avatar" className="w-4 h-4 rounded-full border border-[#F97316]" />
+                <img src={userProfile.avatar} alt="Avatar" className="w-4 h-4 rounded-full border border-[#0070F3]" />
               ) : (
-                <User size={12} className={userProfile?.isGuest ? 'text-[#94A3B8]' : 'text-[#F97316]'} />
+                <User size={12} className={userProfile?.isGuest ? 'text-[#CCCCCC]' : 'text-[#007ACC]'} />
               )}
               <span className="max-w-[120px] truncate font-semibold">{userProfile ? userProfile.name : 'Guest Developer'}</span>
-              <ChevronDown size={12} className={`transition-transform duration-200 ${showProfileDropdown ? 'rotate-180 text-[#F97316]' : 'text-[#94A3B8]'}`} />
+              <ChevronDown size={12} className={`transition-transform duration-200 ${showProfileDropdown ? 'rotate-180 text-[#007ACC]' : 'text-[#CCCCCC]'}`} />
             </button>
 
             {/* EXPANDABLE PROFILE DROPDOWN CARD */}
             {showProfileDropdown && (
-              <div className="absolute right-0 top-10 w-80 bg-[#0F172A] border border-[#334155] rounded-xl shadow-2xl z-50 p-4 flex flex-col gap-3 text-xs text-white animate-in fade-in slide-in-from-top-2 duration-150">
+              <div className="absolute right-0 top-10 w-80 bg-[#252526] border border-[#3C3C3C] rounded-xl shadow-2xl z-50 p-4 flex flex-col gap-3 text-xs text-[#D4D4D4] animate-in fade-in slide-in-from-top-2 duration-150">
                 {/* Header User Details */}
-                <div className="flex items-center gap-3 pb-3 border-b border-[#334155]">
+                <div className="flex items-center gap-3 pb-3 border-b border-[#3C3C3C]">
                   {userProfile?.avatar ? (
-                    <img src={userProfile.avatar} alt="Profile" className="w-10 h-10 rounded-full border-2 border-[#F97316] object-cover" />
+                    <img src={userProfile.avatar} alt="Profile" className="w-10 h-10 rounded-full border-2 border-[#0070F3] object-cover" />
                   ) : (
-                    <div className="w-10 h-10 rounded-full bg-[#1E293B] border border-[#F97316] text-[#F97316] flex items-center justify-center font-bold text-sm">
+                    <div className="w-10 h-10 rounded-full bg-[#1E1E1E] border border-[#007ACC] text-[#007ACC] flex items-center justify-center font-bold text-sm">
                       {userProfile ? userProfile.name.charAt(0).toUpperCase() : 'G'}
                     </div>
                   )}
                   <div className="flex flex-col min-w-0 flex-1">
                     <span className="font-bold text-sm text-white truncate">{userProfile ? userProfile.name : 'Guest Developer'}</span>
-                    <span className="text-[11px] text-[#94A3B8] truncate">{userProfile ? userProfile.email : 'guest@local.dev'}</span>
+                    <span className="text-[11px] text-[#A1A1AA] truncate">{userProfile ? userProfile.email : 'guest@local.dev'}</span>
                     <div className="mt-1 flex items-center gap-1.5">
-                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${userProfile?.isGuest ? 'bg-[#334155] text-[#94A3B8]' : 'bg-[#F97316]/20 text-[#F97316] border border-[#F97316]/40'}`}>
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${userProfile?.isGuest ? 'bg-[#37373D] text-[#CCCCCC]' : 'bg-[#007ACC]/20 text-[#007ACC] border border-[#007ACC]/40'}`}>
                         {userProfile?.isGuest ? '👤 Guest Account' : '🌟 PRO Google Member'}
                       </span>
                     </div>
@@ -1189,19 +1031,19 @@ export default function Home() {
 
                 {/* Account Features & Status */}
                 <div className="flex flex-col gap-1.5 py-1">
-                  <div className="flex items-center justify-between text-[11px] text-[#94A3B8]">
-                    <span>Groq Llama-3 AI Suite:</span>
-                    <span className={userProfile?.isGuest ? 'text-[#F97316] font-semibold' : 'text-emerald-400 font-bold'}>
+                  <div className="flex items-center justify-between text-[11px] text-[#CCCCCC]">
+                    <span>Groq AI Suite:</span>
+                    <span className={userProfile?.isGuest ? 'text-[#007ACC] font-semibold' : 'text-emerald-400 font-bold'}>
                       {userProfile?.isGuest ? 'Locked (Requires Sign In)' : '⚡ Active'}
                     </span>
                   </div>
-                  <div className="flex items-center justify-between text-[11px] text-[#94A3B8]">
+                  <div className="flex items-center justify-between text-[11px] text-[#CCCCCC]">
                     <span>MongoDB Atlas Cloud Sync:</span>
                     <span className="text-emerald-400 font-semibold">Connected</span>
                   </div>
-                  <div className="flex items-center justify-between text-[11px] text-[#94A3B8]">
+                  <div className="flex items-center justify-between text-[11px] text-[#CCCCCC]">
                     <span>Active Workspace Language:</span>
-                    <span className="text-[#38BDF8] font-bold uppercase">{language}</span>
+                    <span className="text-[#007ACC] font-bold uppercase">{language}</span>
                   </div>
                 </div>
 
@@ -1263,14 +1105,14 @@ export default function Home() {
       <main className="flex-1 flex min-h-0 overflow-hidden flex-col md:flex-row">
         
         {/* Left Collapsed Sidebar Icons */}
-        <section className="w-12 bg-[#1E293B] border-r border-[#334155] flex flex-col items-center py-2 gap-2 shrink-0">
+        <section className="w-12 bg-[#181818] border-r border-[#3C3C3C] flex flex-col items-center py-2 gap-2 shrink-0">
           <button
             onClick={() => handleSidebarClick('explorer')}
             title="Explorer"
             className={`w-10 h-10 flex items-center justify-center rounded transition-colors ${
               activeSidebar === 'explorer' && sidebarExpanded
-                ? 'bg-[#0F172A] text-[#F97316]'
-                : 'text-[#94A3B8] hover:text-white'
+                ? 'bg-[#37373D] text-[#007ACC]'
+                : 'text-[#858585] hover:text-white'
             }`}
           >
             <Folder size={18} />
@@ -1280,8 +1122,8 @@ export default function Home() {
             title="Templates"
             className={`w-10 h-10 flex items-center justify-center rounded transition-colors ${
               activeSidebar === 'templates' && sidebarExpanded
-                ? 'bg-[#0F172A] text-[#F97316]'
-                : 'text-[#94A3B8] hover:text-white'
+                ? 'bg-[#37373D] text-[#007ACC]'
+                : 'text-[#858585] hover:text-white'
             }`}
           >
             <Code size={18} />
@@ -1291,8 +1133,8 @@ export default function Home() {
             title="Telemetry"
             className={`w-10 h-10 flex items-center justify-center rounded transition-colors ${
               activeSidebar === 'metrics' && sidebarExpanded
-                ? 'bg-[#0F172A] text-[#F97316]'
-                : 'text-[#94A3B8] hover:text-white'
+                ? 'bg-[#37373D] text-[#007ACC]'
+                : 'text-[#858585] hover:text-white'
             }`}
           >
             <Activity size={18} />
@@ -1302,8 +1144,8 @@ export default function Home() {
             title="Settings"
             className={`w-10 h-10 flex items-center justify-center rounded transition-colors ${
               activeSidebar === 'settings' && sidebarExpanded
-                ? 'bg-[#0F172A] text-[#F97316]'
-                : 'text-[#94A3B8] hover:text-white'
+                ? 'bg-[#37373D] text-[#007ACC]'
+                : 'text-[#858585] hover:text-white'
             }`}
           >
             <Settings size={18} />
@@ -1312,18 +1154,18 @@ export default function Home() {
 
         {/* Collapsible Panel Contents */}
         {sidebarExpanded && (
-          <section className="w-56 bg-[#1E293B] border-r border-[#334155] flex flex-col shrink-0 overflow-y-auto">
+          <section className="w-56 bg-[#252526] border-r border-[#3C3C3C] flex flex-col shrink-0 overflow-y-auto">
             {activeSidebar === 'explorer' && (
               <div className="flex flex-col">
                 {/* EXPLORER Header with + Icon to Add Files */}
-                <div className="px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-[#94A3B8] border-b border-[#334155] flex items-center justify-between">
+                <div className="px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-[#CCCCCC] border-b border-[#3C3C3C] flex items-center justify-between">
                   <span>Explorer</span>
                   <button 
                     onClick={handleAddNewFile} 
                     title="Create New File (+)"
-                    className="p-1 text-[#F8FAFC] hover:bg-[#0F172A] rounded transition-colors"
+                    className="p-1 text-[#D4D4D4] hover:bg-[#1E1E1E] rounded transition-colors"
                   >
-                    <Plus size={14} className="text-[#F97316]" />
+                    <Plus size={14} className="text-[#007ACC]" />
                   </button>
                 </div>
 
@@ -1337,15 +1179,15 @@ export default function Home() {
                         onClick={() => handleSelectFile(file.id)}
                         className={`group flex items-center justify-between p-1.5 rounded cursor-pointer transition-colors ${
                           isActive 
-                            ? 'bg-[#0F172A] text-white font-semibold border-l-2 border-l-[#F97316]' 
-                            : 'text-[#94A3B8] hover:bg-[#0F172A]/50 hover:text-white'
+                            ? 'bg-[#37373D] text-white font-semibold border-l-2 border-l-[#007ACC]' 
+                            : 'text-[#CCCCCC] hover:bg-[#2A2D2E] hover:text-white'
                         }`}
                       >
                         <div className="flex items-center gap-2 truncate">
                           {file.name.endsWith('.mcpp') ? (
-                            <FileCode size={13} className="text-[#F97316] shrink-0" />
+                            <FileCode size={13} className="text-[#007ACC] shrink-0" />
                           ) : (
-                            <FileText size={13} className="shrink-0 text-[#94A3B8]" />
+                            <FileText size={13} className="shrink-0 text-[#CCCCCC]" />
                           )}
                           <span className="truncate">{file.name}</span>
                         </div>
@@ -1354,7 +1196,7 @@ export default function Home() {
                           <button
                             onClick={(e) => handleDeleteFile(file.id, e)}
                             title="Delete File"
-                            className="opacity-0 group-hover:opacity-100 p-0.5 text-[#94A3B8] hover:text-[#EF4444] transition-opacity"
+                            className="opacity-0 group-hover:opacity-100 p-0.5 text-[#CCCCCC] hover:text-[#EF4444] transition-opacity"
                           >
                             <Trash2 size={12} />
                           </button>
@@ -1368,25 +1210,25 @@ export default function Home() {
 
             {activeSidebar === 'metrics' && (
               <div className="flex flex-col">
-                <div className="px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-[#94A3B8] border-b border-[#334155]">
+                <div className="px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-[#CCCCCC] border-b border-[#3C3C3C]">
                   Telemetry
                 </div>
                 <div className="flex flex-col p-3 gap-3 font-mono text-[11px]">
-                  <div className="flex flex-col gap-1 border-b border-[#334155] pb-2">
-                    <span className="text-[#94A3B8]">Exit Code</span>
-                    <strong className={exitCode === null ? 'text-[#94A3B8]' : exitCode === 0 ? 'text-[#22C55E]' : 'text-[#EF4444]'}>
+                  <div className="flex flex-col gap-1 border-b border-[#3C3C3C] pb-2">
+                    <span className="text-[#CCCCCC]">Exit Code</span>
+                    <strong className={exitCode === null ? 'text-[#CCCCCC]' : exitCode === 0 ? 'text-[#22C55E]' : 'text-[#EF4444]'}>
                       {exitCode === null ? 'No execution' : exitCode}
                     </strong>
                   </div>
-                  <div className="flex flex-col gap-1 border-b border-[#334155] pb-2">
-                    <span className="text-[#94A3B8]">Compilation</span>
-                    <span className="text-[#F8FAFC]">
+                  <div className="flex flex-col gap-1 border-b border-[#3C3C3C] pb-2">
+                    <span className="text-[#CCCCCC]">Compilation</span>
+                    <span className="text-[#D4D4D4]">
                       {compileTime !== null ? `${compileTime} ms` : 'N/A'}
                     </span>
                   </div>
-                  <div className="flex flex-col gap-1 border-b border-[#334155] pb-2">
-                    <span className="text-[#94A3B8]">Execution</span>
-                    <span className="text-[#F8FAFC]">
+                  <div className="flex flex-col gap-1 border-b border-[#3C3C3C] pb-2">
+                    <span className="text-[#CCCCCC]">Execution</span>
+                    <span className="text-[#D4D4D4]">
                       {executionTime !== null ? `${executionTime} ms` : 'N/A'}
                     </span>
                   </div>
@@ -1396,21 +1238,21 @@ export default function Home() {
 
             {activeSidebar === 'templates' && (
               <div className="flex flex-col">
-                <div className="px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-[#94A3B8] border-b border-[#334155]">
+                <div className="px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-[#CCCCCC] border-b border-[#3C3C3C]">
                   Presets
                 </div>
                 <div className="flex flex-col p-2 gap-1.5 text-xs">
-                  <button className="p-2 text-left bg-[#0F172A] border border-[#334155] hover:bg-[#334155] transition-colors rounded text-[#F8FAFC]" onClick={() => { setLanguage('mcpp'); handleResetCode(); }}>
-                    <div className="font-bold text-[#F97316]">MiniCPP Template</div>
-                    <div className="text-[10px] text-[#94A3B8]">mcpc handwritten compiler</div>
+                  <button className="p-2 text-left bg-[#1E1E1E] border border-[#3C3C3C] hover:bg-[#37373D] transition-colors rounded text-[#D4D4D4]" onClick={() => { setLanguage('mcpp'); handleResetCode(); }}>
+                    <div className="font-bold text-[#007ACC]">MiniCPP Template</div>
+                    <div className="text-[10px] text-[#CCCCCC]">mcpc handwritten compiler</div>
                   </button>
-                  <button className="p-2 text-left bg-[#1E293B] border border-[#334155] hover:bg-[#0F172A] transition-colors rounded text-[#94A3B8] hover:text-white" onClick={() => { setLanguage('cpp'); handleResetCode(); }}>
+                  <button className="p-2 text-left bg-[#252526] border border-[#3C3C3C] hover:bg-[#2A2D2E] transition-colors rounded text-[#CCCCCC] hover:text-white" onClick={() => { setLanguage('cpp'); handleResetCode(); }}>
                     <div className="font-bold">C++ Standard</div>
-                    <div className="text-[10px] text-[#94A3B8]">g++ compiler suite</div>
+                    <div className="text-[10px] text-[#CCCCCC]">g++ compiler suite</div>
                   </button>
-                  <button className="p-2 text-left bg-[#1E293B] border border-[#334155] hover:bg-[#0F172A] transition-colors rounded text-[#94A3B8] hover:text-white" onClick={() => { setLanguage('python'); handleResetCode(); }}>
+                  <button className="p-2 text-left bg-[#252526] border border-[#3C3C3C] hover:bg-[#2A2D2E] transition-colors rounded text-[#CCCCCC] hover:text-white" onClick={() => { setLanguage('python'); handleResetCode(); }}>
                     <div className="font-bold">Python script</div>
-                    <div className="text-[10px] text-[#94A3B8]">python3 interpreter</div>
+                    <div className="text-[10px] text-[#CCCCCC]">python3 interpreter</div>
                   </button>
                 </div>
               </div>
@@ -1418,41 +1260,41 @@ export default function Home() {
 
             {activeSidebar === 'settings' && (
               <div className="flex flex-col">
-                <div className="px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-[#94A3B8] border-b border-[#334155]">
+                <div className="px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-[#CCCCCC] border-b border-[#3C3C3C]">
                   Settings & Terminal Options
                 </div>
-                <div className="p-3 text-xs text-[#F8FAFC] flex flex-col gap-3 leading-relaxed">
+                <div className="p-3 text-xs text-[#D4D4D4] flex flex-col gap-3 leading-relaxed">
                   <div>
-                    <span className="text-[#94A3B8] font-semibold">Terminal Engine:</span>
+                    <span className="text-[#CCCCCC] font-semibold">Terminal Engine:</span>
                     <select
                       value={terminalEngine}
                       onChange={(e) => setTerminalEngine(e.target.value as any)}
-                      className="w-full mt-1 bg-[#0F172A] border border-[#334155] p-1.5 rounded text-white text-xs font-mono outline-none focus:border-[#F97316]"
+                      className="w-full mt-1 bg-[#252526] border border-[#3C3C3C] p-1.5 rounded text-white text-xs font-mono outline-none focus:border-[#007ACC]"
                     >
                       <option value="xterm">⚡ XTerm.js Interactive Terminal</option>
                       <option value="standard">Standard Console Output</option>
                     </select>
                   </div>
                   <div>
-                    <span className="text-[#94A3B8] font-semibold">Terminal Cursor Blink:</span>
+                    <span className="text-[#CCCCCC] font-semibold">Terminal Cursor Blink:</span>
                     <button
                       onClick={() => setTerminalCursorBlink(!terminalCursorBlink)}
                       className={`w-full mt-1 py-1.5 px-2 rounded border font-bold text-xs transition-colors ${
-                        terminalCursorBlink ? 'bg-[#F97316]/20 border-[#F97316] text-[#F97316]' : 'bg-[#0F172A] border-[#334155] text-[#94A3B8]'
+                        terminalCursorBlink ? 'bg-[#007ACC]/20 border-[#007ACC] text-[#007ACC]' : 'bg-[#252526] border-[#3C3C3C] text-[#CCCCCC]'
                       }`}
                     >
                       {terminalCursorBlink ? '⚡ Cursor Blink: ON' : 'OFF'}
                     </button>
                   </div>
                   <div>
-                    <span className="text-[#94A3B8] font-semibold">Terminal Font Size:</span>
+                    <span className="text-[#CCCCCC] font-semibold">Terminal Font Size:</span>
                     <div className="flex gap-1.5 mt-1">
                       {[12, 13, 14, 16].map(sz => (
                         <button
                           key={sz}
                           onClick={() => setTerminalFontSize(sz)}
                           className={`flex-1 py-1 rounded border text-xs font-mono font-bold transition-all ${
-                            terminalFontSize === sz ? 'bg-[#F97316] text-white border-[#F97316]' : 'bg-[#0F172A] border-[#334155] text-[#94A3B8]'
+                            terminalFontSize === sz ? 'bg-[#007ACC] text-white border-[#007ACC]' : 'bg-[#252526] border-[#3C3C3C] text-[#CCCCCC]'
                           }`}
                         >
                           {sz}px
@@ -1460,9 +1302,9 @@ export default function Home() {
                       ))}
                     </div>
                   </div>
-                  <div className="pt-2 border-t border-[#334155]">
-                    <span className="text-[#94A3B8]">Editor Font:</span>
-                    <div className="font-mono bg-[#0F172A] p-1 border border-[#334155] mt-1 rounded text-center">JetBrains Mono</div>
+                  <div className="pt-2 border-t border-[#3C3C3C]">
+                    <span className="text-[#CCCCCC]">Editor Font:</span>
+                    <div className="font-mono bg-[#252526] border border-[#3C3C3C] p-1 mt-1 rounded text-center">JetBrains Mono</div>
                   </div>
                 </div>
               </div>
@@ -1471,9 +1313,9 @@ export default function Home() {
         )}
 
         {/* Center: Editor area with File Tabs Header */}
-        <section className="flex-1 flex flex-col min-w-0 bg-[#0F172A]">
+        <section className="flex-1 flex flex-col min-w-0 bg-[#1E1E1E]">
           {/* File Tabs Navigation Bar */}
-          <div className="flex items-center bg-[#1E293B] border-b border-[#334155] overflow-x-auto shrink-0 font-mono text-xs">
+          <div className="flex items-center bg-[#252526] border-b border-[#3C3C3C] overflow-x-auto shrink-0 font-mono text-xs">
             {openTabIds.map(tabId => {
               const file = files.find(f => f.id === tabId);
               if (!file) return null;
@@ -1482,18 +1324,18 @@ export default function Home() {
                 <div
                   key={tabId}
                   onClick={() => setActiveFileId(tabId)}
-                  className={`flex items-center gap-2 px-3.5 py-2 border-r border-[#334155] cursor-pointer transition-colors shrink-0 ${
+                  className={`flex items-center gap-2 px-3.5 py-2 border-r border-[#3C3C3C] cursor-pointer transition-colors shrink-0 ${
                     isActive 
-                      ? 'bg-[#0F172A] text-white font-bold border-t-2 border-t-[#F97316]' 
-                      : 'text-[#94A3B8] hover:bg-[#0F172A]/60 hover:text-[#F8FAFC]'
+                      ? 'bg-[#1E1E1E] text-white font-semibold border-t-2 border-t-[#007ACC]' 
+                      : 'bg-[#2D2D2D] text-[#CCCCCC] hover:bg-[#2A2D2E] hover:text-white'
                   }`}
                 >
-                  <FileCode size={12} className={isActive ? 'text-[#F97316]' : 'text-[#94A3B8]'} />
+                  <FileCode size={12} className={isActive ? 'text-[#007ACC]' : 'text-[#CCCCCC]'} />
                   <span>{file.name}</span>
                   {openTabIds.length > 1 && (
                     <button 
                       onClick={(e) => handleCloseTab(tabId, e)}
-                      className="p-0.5 rounded hover:bg-[#334155] text-[#94A3B8] hover:text-white"
+                      className="p-0.5 rounded hover:bg-[#2A2D2E] text-[#CCCCCC] hover:text-white"
                     >
                       <X size={11} />
                     </button>
@@ -1530,39 +1372,39 @@ export default function Home() {
 
           {/* Bottom Console / Output Panel (Console, AST Viewer, AI Suite) */}
           {showBottomPanel && (
-            <div className="h-[280px] shrink-0 bg-[#1E293B] border-t border-[#334155] flex flex-col min-h-[150px]">
+            <div className="h-[280px] shrink-0 bg-[#252526] border-t border-[#3C3C3C] flex flex-col min-h-[150px]">
               {/* Panel header tabs & controls */}
-              <div className="flex items-center justify-between border-b border-[#334155] bg-[#0F172A] shrink-0">
+              <div className="flex items-center justify-between border-b border-[#3C3C3C] bg-[#181818] shrink-0">
                 <div className="flex gap-0.5 overflow-x-auto">
                   <button
                     onClick={() => setActiveTab('console')}
-                    className={`px-3.5 py-2 text-xs font-semibold border-r border-[#334155] transition-colors shrink-0 ${
+                    className={`px-3.5 py-2 text-xs font-semibold border-r border-[#3C3C3C] transition-colors shrink-0 ${
                       activeTab === 'console'
-                        ? 'bg-[#1E293B] text-white'
-                        : 'text-[#94A3B8] hover:text-[#F8FAFC]'
+                        ? 'bg-[#252526] text-white border-t border-t-[#007ACC]'
+                        : 'text-[#CCCCCC] hover:text-white hover:bg-[#2A2D2E]'
                     }`}
                   >
                     Console (Interactive Terminal)
                   </button>
                   <button
                     onClick={() => setActiveTab('ast')}
-                    className={`px-3.5 py-2 text-xs font-semibold border-r border-[#334155] transition-colors shrink-0 ${
+                    className={`px-3.5 py-2 text-xs font-semibold border-r border-[#3C3C3C] transition-colors shrink-0 ${
                       activeTab === 'ast'
-                        ? 'bg-[#1E293B] text-white'
-                        : 'text-[#94A3B8] hover:text-[#F8FAFC]'
+                        ? 'bg-[#252526] text-white border-t border-t-[#007ACC]'
+                        : 'text-[#CCCCCC] hover:text-white hover:bg-[#2A2D2E]'
                     }`}
                   >
                     AST Viewer
                   </button>
                   <button
                     onClick={() => setActiveTab('ai')}
-                    className={`px-3.5 py-2 text-xs font-semibold border-r border-[#334155] transition-colors flex items-center gap-1.5 shrink-0 ${
+                    className={`px-3.5 py-2 text-xs font-semibold border-r border-[#3C3C3C] transition-colors flex items-center gap-1.5 shrink-0 ${
                       activeTab === 'ai'
-                        ? 'bg-[#1E293B] text-[#F97316] font-bold'
-                        : 'text-[#94A3B8] hover:text-[#F97316]'
+                        ? 'bg-[#252526] text-[#007ACC] font-semibold border-t border-t-[#007ACC]'
+                        : 'text-[#CCCCCC] hover:text-[#007ACC] hover:bg-[#2A2D2E]'
                     }`}
                   >
-                    <Bot size={13} className="text-[#F97316]" />
+                    <Bot size={13} className="text-[#007ACC]" />
                     <span>AI Suite</span>
                   </button>
                 </div>
@@ -1570,12 +1412,12 @@ export default function Home() {
                 <div className="flex items-center gap-3 pr-3">
                   {/* TERMINAL ENGINE SELECT DROPDOWN IN TOOLBAR */}
                   {activeTab === 'console' && (
-                    <div className="flex items-center gap-1.5 text-xs text-[#94A3B8]">
+                    <div className="flex items-center gap-1.5 text-xs text-[#CCCCCC]">
                       <span className="font-semibold text-[10px] uppercase">Engine:</span>
                       <select
                         value={terminalEngine}
                         onChange={(e) => setTerminalEngine(e.target.value as any)}
-                        className="bg-[#0F172A] border border-[#334155] px-2 py-0.5 rounded text-white text-[11px] font-mono outline-none focus:border-[#F97316] cursor-pointer"
+                        className="bg-[#252526] border border-[#3C3C3C] px-2 py-0.5 rounded text-white text-[11px] font-mono outline-none focus:border-[#007ACC] cursor-pointer"
                       >
                         <option value="xterm">Interactive (XTerm)</option>
                         <option value="standard">Standard Batch</option>
@@ -1598,7 +1440,7 @@ export default function Home() {
                       }
                     }}
                     title="Clear Terminal / Output"
-                    className="p-1 rounded hover:bg-[#334155] text-[#94A3B8] hover:text-white transition-colors"
+                    className="p-1 rounded hover:bg-[#2A2D2E] text-[#CCCCCC] hover:text-white transition-colors"
                   >
                     <Trash2 size={13} />
                   </button>
@@ -1610,7 +1452,7 @@ export default function Home() {
                       setSidebarExpanded(true);
                     }}
                     title="Terminal Settings"
-                    className="p-1 rounded hover:bg-[#334155] text-[#94A3B8] hover:text-white transition-colors"
+                    className="p-1 rounded hover:bg-[#2A2D2E] text-[#CCCCCC] hover:text-white transition-colors"
                   >
                     <Settings2 size={13} />
                   </button>
@@ -1619,7 +1461,7 @@ export default function Home() {
                   <button
                     onClick={() => setShowBottomPanel(false)}
                     title="Collapse Console Panel"
-                    className="p-1 rounded hover:bg-[#334155] text-[#94A3B8] hover:text-white transition-colors"
+                    className="p-1 rounded hover:bg-[#2A2D2E] text-[#CCCCCC] hover:text-white transition-colors"
                   >
                     <ChevronDown size={14} />
                   </button>
@@ -1775,11 +1617,11 @@ export default function Home() {
                       </div>
                     ) : (
                       <div className="flex-1 flex flex-col gap-3 font-sans text-xs">
-                        <div className="grid grid-cols-3 gap-1.5 p-1 bg-[#0F172A] border border-[#334155] rounded-lg">
+                        <div className="grid grid-cols-3 gap-1.5 p-1 bg-[#1E1E1E] border border-[#3C3C3C] rounded-lg">
                           <button
                             onClick={handleAiSummary}
-                            className={`py-1.5 px-2 font-bold text-[11px] rounded transition-colors flex items-center justify-center gap-1 ${
-                              aiSubTab === 'summary' ? 'bg-[#F97316] text-white' : 'text-[#94A3B8] hover:text-white'
+                            className={`py-1.5 px-2 font-semibold text-[11px] rounded transition-colors flex items-center justify-center gap-1 ${
+                              aiSubTab === 'summary' ? 'bg-[#007ACC] text-white' : 'text-[#CCCCCC] hover:text-white hover:bg-[#2A2D2E]'
                             }`}
                           >
                             <FileSearch size={12} />
@@ -1787,8 +1629,8 @@ export default function Home() {
                           </button>
                           <button
                             onClick={handleAiExplainCode}
-                            className={`py-1.5 px-2 font-bold text-[11px] rounded transition-colors flex items-center justify-center gap-1 ${
-                              aiSubTab === 'explain' ? 'bg-[#F97316] text-white' : 'text-[#94A3B8] hover:text-white'
+                            className={`py-1.5 px-2 font-semibold text-[11px] rounded transition-colors flex items-center justify-center gap-1 ${
+                              aiSubTab === 'explain' ? 'bg-[#007ACC] text-white' : 'text-[#CCCCCC] hover:text-white hover:bg-[#2A2D2E]'
                             }`}
                           >
                             <Wand2 size={12} />
@@ -1796,8 +1638,8 @@ export default function Home() {
                           </button>
                           <button
                             onClick={handleAiAutoFix}
-                            className={`py-1.5 px-2 font-bold text-[11px] rounded transition-colors flex items-center justify-center gap-1 ${
-                              aiSubTab === 'autofix' ? 'bg-[#F97316] text-white' : 'text-[#94A3B8] hover:text-white'
+                            className={`py-1.5 px-2 font-semibold text-[11px] rounded transition-colors flex items-center justify-center gap-1 ${
+                              aiSubTab === 'autofix' ? 'bg-[#007ACC] text-white' : 'text-[#CCCCCC] hover:text-white hover:bg-[#2A2D2E]'
                             }`}
                           >
                             <Wrench size={12} />
@@ -1805,9 +1647,9 @@ export default function Home() {
                           </button>
                         </div>
 
-                        <div className="p-3 rounded-lg bg-[#0F172A] border border-[#334155] flex flex-col gap-2">
+                        <div className="p-3 rounded-lg bg-[#1E1E1E] border border-[#3C3C3C] flex flex-col gap-2">
                           <span className="font-semibold text-white flex items-center gap-1">
-                            <MessageSquareCode size={13} className="text-[#F97316]" />
+                            <MessageSquareCode size={13} className="text-[#007ACC]" />
                             <span>AI Code Writer</span>
                           </span>
                           <div className="flex gap-2">
@@ -1816,12 +1658,12 @@ export default function Home() {
                               value={aiPrompt}
                               onChange={(e) => setAiPrompt(e.target.value)}
                               placeholder="e.g. Write a quicksort function in MiniCPP"
-                              className="flex-1 bg-[#1E293B] border border-[#334155] px-2.5 py-1.5 text-xs text-white rounded outline-none focus:border-[#F97316]"
+                              className="flex-1 bg-[#252526] border border-[#3C3C3C] px-2.5 py-1.5 text-xs text-[#D4D4D4] rounded outline-none focus:border-[#007ACC]"
                             />
                             <button
                               onClick={handleAiGenerateCode}
                               disabled={aiLoading}
-                              className="px-3 py-1.5 bg-[#F97316] hover:bg-[#EA580C] text-white font-bold text-xs rounded shrink-0 transition-colors"
+                              className="px-3 py-1.5 bg-[#007ACC] hover:bg-[#007ACC]/90 text-white font-bold text-xs rounded shrink-0 transition-colors"
                             >
                               Generate
                             </button>
@@ -1831,22 +1673,22 @@ export default function Home() {
                         {aiFixableCode && (
                           <button
                             onClick={handleApplyAutoFixToEditor}
-                            className="py-2 px-3 bg-[#22C55E] hover:bg-[#16A34A] text-white font-bold text-xs rounded-lg flex items-center justify-center gap-2 transition-all shadow-md w-full"
+                            className="py-2 px-3 bg-[#22C55E] hover:bg-[#22C55E]/90 text-white font-bold text-xs rounded-lg flex items-center justify-center gap-2 transition-all shadow-md w-full"
                           >
                             <CheckCircle2 size={14} />
                             <span>Apply Auto-Fix to Monaco Editor</span>
                           </button>
                         )}
 
-                        <div className="flex-1 rounded border border-[#334155] bg-[#0F172A] p-3 font-mono text-xs overflow-y-auto leading-relaxed whitespace-pre-wrap text-[#F8FAFC]">
+                        <div className="flex-1 rounded border border-[#3C3C3C] bg-[#1E1E1E] p-3 font-mono text-xs overflow-y-auto leading-relaxed whitespace-pre-wrap text-[#D4D4D4]">
                           {aiLoading && (
-                            <div className="flex items-center gap-2 text-[#F97316]">
+                            <div className="flex items-center gap-2 text-[#007ACC]">
                               <Cpu size={14} className="animate-spin" />
                               <span>Groq Llama-3 AI is processing...</span>
                             </div>
                           )}
                           {!aiLoading && !aiResultText && (
-                            <span className="text-[#94A3B8] italic">Select an AI action above to view output.</span>
+                            <span className="text-[#CCCCCC] italic">Select an AI action above to view output.</span>
                           )}
                           {!aiLoading && aiResultText && (
                             <div>{aiResultText}</div>
@@ -1859,9 +1701,9 @@ export default function Home() {
 
                 {activeTab === 'about' && (
                   <div className="flex-1 overflow-y-auto leading-relaxed text-xs">
-                    <div className="flex flex-col gap-4 text-[#94A3B8]">
-                      <div className="p-3 bg-[#0F172A] border border-[#334155] rounded-lg">
-                        <h4 className="font-bold text-[#F97316] mb-1">CodeForge Desktop Sandbox</h4>
+                    <div className="flex flex-col gap-4 text-[#CCCCCC]">
+                      <div className="p-3 bg-[#1E1E1E] border border-[#3C3C3C] rounded-lg">
+                        <h4 className="font-bold text-[#007ACC] mb-1">CodeForge Desktop Sandbox</h4>
                         <p className="leading-normal">
                           Compiles and executes code inside containerized environments or sandbox local environments securely. Maximum execution limit is 5 seconds.
                         </p>
@@ -1889,17 +1731,17 @@ export default function Home() {
 
       {/* Sleek Website Cookie & Session Storage Consent Banner */}
       {!cookieConsent && (
-        <div className="fixed bottom-8 right-4 max-w-sm bg-[#0F172A] border border-[#F97316] rounded-2xl shadow-2xl p-4 z-50 flex flex-col gap-2.5 text-xs text-white animate-in fade-in slide-in-from-bottom-4">
+        <div className="fixed bottom-8 right-4 max-w-sm bg-[#252526] border border-[#007ACC] rounded-2xl shadow-2xl p-4 z-50 flex flex-col gap-2.5 text-xs text-white animate-in fade-in slide-in-from-bottom-4">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 text-[#F97316] font-bold">
+            <div className="flex items-center gap-2 text-[#007ACC] font-bold">
               <Sparkles size={15} />
               <span>Cookies & Session Memory (60+ Days)</span>
             </div>
-            <button onClick={() => setCookieConsent(true)} className="text-[#94A3B8] hover:text-white p-0.5">
+            <button onClick={() => setCookieConsent(true)} className="text-[#CCCCCC] hover:text-white p-0.5">
               <X size={14} />
             </button>
           </div>
-          <p className="text-[11px] text-[#94A3B8] leading-relaxed">
+          <p className="text-[11px] text-[#CCCCCC] leading-relaxed">
             We use local storage & session cookies to remember your code files, custom tabs, profile settings, and Groq AI preferences permanently across visits for 60+ days.
           </p>
           <div className="flex items-center gap-2 pt-1">
@@ -1908,7 +1750,7 @@ export default function Home() {
                 localStorage.setItem('mcpc_cookie_consent', 'true');
                 setCookieConsent(true);
               }}
-              className="w-full py-2 px-3 bg-[#F97316] hover:bg-[#EA580C] text-white font-bold rounded-xl text-xs shadow-lg transition-all text-center"
+              className="w-full py-2 px-3 bg-[#007ACC] hover:bg-[#007ACC]/90 text-white font-bold rounded-xl text-xs shadow-lg transition-all text-center"
             >
               Accept Cookies & Sessions
             </button>
@@ -1917,12 +1759,12 @@ export default function Home() {
       )}
 
       {/* VS Code Status Bar */}
-      <footer className="h-6 bg-[#F97316] text-white flex items-center justify-between px-3 text-[11px] font-mono select-none shrink-0 z-10">
+      <footer className="h-6 bg-[#007ACC] text-white flex items-center justify-between px-3 text-[11px] font-mono select-none shrink-0 z-10">
         <div className="flex items-center gap-3">
-          <span className="bg-[#EA580C] px-1.5 py-0.5 rounded font-bold text-white shrink-0">READY</span>
+          <span className="bg-[#005A9E] px-1.5 py-0.5 rounded font-bold text-white shrink-0">READY</span>
           <button
             onClick={() => setShowBottomPanel(prev => !prev)}
-            className="flex items-center gap-1 bg-[#EA580C] hover:brightness-110 px-2 py-0.5 rounded font-bold text-white transition-all cursor-pointer shrink-0"
+            className="flex items-center gap-1 bg-[#005A9E] hover:brightness-110 px-2 py-0.5 rounded font-bold text-white transition-all cursor-pointer shrink-0"
           >
             <TerminalIcon size={11} />
             <span>{showBottomPanel ? 'Hide Console' : 'Show Console'}</span>
