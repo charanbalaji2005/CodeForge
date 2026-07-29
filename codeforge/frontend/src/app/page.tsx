@@ -462,8 +462,13 @@ export default function Home() {
 
   // Download Desktop Installer (.exe / .msi) for x86/x64 Windows Laptops
   const handleDownloadDesktopApp = () => {
-    // Triggers direct browser download of installer from Express backend /download endpoint
-    window.location.href = `${BACKEND_URL}/download`;
+    // Triggers direct browser download of installer from GitHub Releases when on Vercel/cloud,
+    // and falls back to local backend when testing locally.
+    if (typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+      window.location.href = 'https://github.com/charanbalaji2005/CodeForge/releases/download/v1.0.0/CodeForge_Desktop_Compiler_Setup_1.0.0.exe';
+    } else {
+      window.location.href = `${BACKEND_URL}/download`;
+    }
   };
 
   // ----------------------------------------------------
